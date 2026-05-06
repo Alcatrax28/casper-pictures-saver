@@ -5,6 +5,13 @@ import header as _header
 TITLE = "Changelog"
 
 ENTRIES = [
+    ("v1.1.0", "2026-05-07  —  Sélection du type de média à télécharger", [
+        "[F1]  Sauvegarde Android via KDE Connect",
+        "      Nouvelle étape : choix du type de média avant le transfert.",
+        "      Trois options disponibles : Photos uniquement, Vidéos uniquement,",
+        "                                  Photos et vidéos (sélection par défaut).",
+        "      Le filtre s'applique aussi à l'indexation du dossier de comparaison.",
+    ]),
     ("v1.0.0", "2026-05-06  —  Correctifs majeurs & nouvelles fonctionnalités", [
         "[F1]  Sauvegarde Android via KDE Connect",
         "      Correctif : listing des périphériques (nouveau format kdeconnect-cli,",

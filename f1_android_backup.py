@@ -5,11 +5,12 @@ Flux :
   1. Détection des périphériques KDE Connect
   2. Sélection du périphérique (si plusieurs)
   3. Montage du système de fichiers Android via SFTP
-  4. Choix du dossier de destination (PC)
-  5. Dossier de comparaison ? (F1=Oui / F2=Non)
+  4. Sélection du type de média (photos / vidéos / les deux)
+  5. Choix du dossier de destination (PC)
+  6. Dossier de comparaison ? (F1=Oui / F2=Non)
      → si oui : choix du dossier de comparaison
-  6. Transfert (les fichiers déjà présents dans la comparaison sont ignorés)
-  7. Résumé
+  7. Transfert (les fichiers déjà présents dans la comparaison sont ignorés)
+  8. Résumé
 """
 
 import curses
@@ -24,10 +25,9 @@ import folder_browser
 import header as _header
 
 
-MEDIA_EXT = {
-    '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.heic', '.heif',
-    '.mp4', '.mov', '.avi', '.mkv', '.3gp', '.m4v', '.wmv',
-}
+PHOTO_EXT = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.heic', '.heif'}
+VIDEO_EXT = {'.mp4', '.mov', '.avi', '.mkv', '.3gp', '.m4v', '.wmv'}
+MEDIA_EXT = PHOTO_EXT | VIDEO_EXT
 
 TITLE = "Sauvegarde Android via KDE Connect"
 
@@ -78,7 +78,12 @@ def run(stdscr, colors):
         # Détection automatique du dossier DCIM
         src = _find_dcim(dm.storage_roots())
 
-        # 4. Dossier de destination ───────────────────────────────────────────
+        # 4. Type de média ────────────────────────────────────────────────────
+        media_ext = _pick_media_type(stdscr, colors)
+        if media_ext is None:
+            return
+
+        # 5. Dossier de destination ───────────────────────────────────────────
         dest = folder_browser.browse(
             stdscr, colors,
             title="Dossier de destination sur le PC",
@@ -87,7 +92,7 @@ def run(stdscr, colors):
         if dest is None:
             return
 
-        # 5. Dossier de comparaison ───────────────────────────────────────────
+        # 6. Dossier de comparaison ───────────────────────────────────────────
         use_cmp = _ask_yn(
             stdscr, colors,
             "Utiliser un dossier de comparaison ?",
@@ -106,11 +111,11 @@ def run(stdscr, colors):
             if compare is None:
                 return
 
-        # 6. Transfert ────────────────────────────────────────────────────────
-        existing = _index_existing(compare, stdscr, colors)
-        copied, skipped, errors = _transfer(stdscr, colors, src, dest, existing)
+        # 7. Transfert ────────────────────────────────────────────────────────
+        existing = _index_existing(compare, stdscr, colors, media_ext)
+        copied, skipped, errors = _transfer(stdscr, colors, src, dest, existing, media_ext)
 
-        # 7. Résumé ───────────────────────────────────────────────────────────
+        # 8. Résumé ───────────────────────────────────────────────────────────
         lines = [
             f"  ✔  {copied} fichier(s) copié(s)",
             f"  ↷  {skipped} fichier(s) ignoré(s) (déjà présent(s))",
@@ -191,12 +196,14 @@ def _save_cache(compare_dir, fingerprint, sigs):
         pass
 
 
-def _index_existing(compare_dir, stdscr, colors):
+def _index_existing(compare_dir, stdscr, colors, media_ext=None):
     """
     Construit un ensemble de signatures (taille, hash_partiel) pour les médias
     du dossier de comparaison, récursivement.
     Utilise un cache si le dossier n'a pas changé depuis le dernier indexage.
     """
+    if media_ext is None:
+        media_ext = MEDIA_EXT
     sigs = set()
     if not compare_dir:
         return sigs
@@ -208,7 +215,7 @@ def _index_existing(compare_dir, stdscr, colors):
             p = Path(root) / f
             if p.name == _CACHE_FILE:
                 continue
-            if p.suffix.lower() in MEDIA_EXT:
+            if p.suffix.lower() in media_ext:
                 try:
                     all_files.append((str(p.relative_to(compare_dir)), p.stat().st_size, p))
                 except OSError:
@@ -256,11 +263,13 @@ def _index_existing(compare_dir, stdscr, colors):
     return sigs
 
 
-def _transfer(stdscr, colors, src, dest, existing):
+def _transfer(stdscr, colors, src, dest, existing, media_ext=None):
     """Copie les médias de src vers dest en ignorant ceux dans existing."""
+    if media_ext is None:
+        media_ext = MEDIA_EXT
     files = [
         p for p in Path(src).rglob('*')
-        if p.is_file() and p.suffix.lower() in MEDIA_EXT
+        if p.is_file() and p.suffix.lower() in media_ext
     ]
     total   = len(files)
     copied  = 0
@@ -376,6 +385,52 @@ def _ask_yn(stdscr, colors, question, *details):
         if key == curses.KEY_F2:
             return False
         if key == 27:
+            return None
+
+
+def _pick_media_type(stdscr, colors):
+    """
+    Écran de sélection du type de média à télécharger.
+    Retourne le set d'extensions correspondant, ou None si annulé.
+    """
+    choices = [
+        ("Photos uniquement",    PHOTO_EXT),
+        ("Vidéos uniquement",    VIDEO_EXT),
+        ("Photos et vidéos",     MEDIA_EXT),
+    ]
+    selected = 2  # "Photos et vidéos" par défaut
+
+    while True:
+        h, w = stdscr.getmaxyx()
+        stdscr.clear()
+        hh = _header.draw_sub_header(stdscr, colors, TITLE)
+        _header.draw_footer(stdscr, colors)
+
+        _s(stdscr, hh + 1, 4, "Que souhaitez-vous télécharger ?", colors['name'])
+
+        for i, (label, _) in enumerate(choices):
+            row  = hh + 3 + i * 2
+            arrow = "▶" if i == selected else " "
+            text  = f"  {arrow}  {label}"
+            attr  = colors['sel'] if i == selected else colors['normal']
+            if i == selected:
+                _s(stdscr, row, 0, text[:w - 1].ljust(w - 1), attr)
+            else:
+                _s(stdscr, row, 0, text[:w], attr)
+
+        _s(stdscr, h - 2, 0,
+           "  ↑ ↓  Naviguer    Entrée  Valider    Échap  Annuler  ".ljust(w - 1),
+           colors['help'])
+        stdscr.refresh()
+
+        key = stdscr.getch()
+        if key == curses.KEY_UP and selected > 0:
+            selected -= 1
+        elif key == curses.KEY_DOWN and selected < len(choices) - 1:
+            selected += 1
+        elif key in (curses.KEY_ENTER, 10, 13):
+            return choices[selected][1]
+        elif key == 27:
             return None
 
 
