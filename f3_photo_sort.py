@@ -18,6 +18,7 @@ from datetime import datetime
 from pathlib import Path
 
 import folder_browser
+import header as _header
 
 MEDIA_EXT = {
     '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.heic', '.heif',
@@ -228,13 +229,13 @@ def _progress(stdscr, colors, i, total, filename, label):
     done  = int(bar_w * (i + 1) / total) if total else bar_w
     bar   = f"[{'█' * done}{'░' * (bar_w - done)}]  {(i+1)*100//total if total else 100}%"
     fname = filename if len(filename) <= w - 4 else "…" + filename[-(w - 5):]
-    mid   = h // 2
     stdscr.clear()
-    _s(stdscr, 0,       0, f"  {TITLE}".ljust(w - 1),  colors['help'])
-    _s(stdscr, mid - 1, 2, label,                       colors['name'])
-    _s(stdscr, mid,     2, bar[:w - 3],                 colors['key'])
-    _s(stdscr, mid + 1, 2, fname,                       colors['normal'])
-    _s(stdscr, h - 1,   0, f"  {TITLE}  ".center(w-1), colors['footer'])
+    hh  = _header.draw_sub_header(stdscr, colors, TITLE)
+    _header.draw_footer(stdscr, colors)
+    mid = hh + (h - 1 - hh) // 2
+    _s(stdscr, mid - 1, 2, label,       colors['name'])
+    _s(stdscr, mid,     2, bar[:w - 3], colors['key'])
+    _s(stdscr, mid + 1, 2, fname,       colors['normal'])
     stdscr.refresh()
 
 
@@ -250,10 +251,12 @@ def _wait(stdscr, colors, lines):
 def _box(stdscr, colors, lines, title=""):
     h, w  = stdscr.getmaxyx()
     stdscr.clear()
+    hh    = _header.draw_sub_header(stdscr, colors, TITLE)
+    _header.draw_footer(stdscr, colors)
     box_w = min(w - 4, max((len(l) for l in lines), default=0) + 8)
     box_w = max(box_w, len(title) + 8, 52)
     box_h = len(lines) + 4
-    y     = max(0, (h - box_h) // 2)
+    y     = hh + max(0, (h - 1 - hh - box_h) // 2)
     x     = max(0, (w - box_w) // 2)
 
     _s(stdscr, y,             x, f"┌{'─'*(box_w-2)}┐", colors['key'])
@@ -266,7 +269,6 @@ def _box(stdscr, colors, lines, title=""):
         _s(stdscr, y + i, x + box_w-1, '│', colors['key'])
     for i, line in enumerate(lines):
         _s(stdscr, y + 2 + i, x + 4, line[:box_w - 8], colors['normal'])
-    _s(stdscr, h-1, 0, f"  {TITLE}  ".center(w-1), colors['footer'])
     stdscr.refresh()
 
 

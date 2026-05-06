@@ -9,12 +9,13 @@ from datetime import datetime
 from pathlib import Path
 
 import folder_browser
+import header as _header
 
 TITLE     = "Renommage de fichiers en lot"
 UNDO_FILE = ".f4_undo.json"
 
 MODES = [
-    ("Prédéfini IMG dates",    "IMG[_-]AAAA[_-]mm[_-]DD[_-]HH[_-]MM[_-]SS  →  IMG_AAAA-mm-DD_HH-MM-SS"),
+    ("Prédéfini IMG dates",    "IMGAAAAmmDDHHMMSS (séparateurs optionnels)  →  IMG_AAAAmmDD_HHMMSS"),
     ("Préfixe / Suffixe",      "Ajouter du texte avant / après le nom"),
     ("Rechercher / Remplacer", "Texte simple ou expression régulière"),
     ("Casse",                  "MAJUSCULES, minuscules, Titre, Phrase"),
@@ -40,6 +41,10 @@ def run(stdscr, colors):
     if folder is None:
         return
 
+    recursive = _ask_yn(stdscr, colors, "Inclure les sous-dossiers ?")
+    if recursive is None:
+        return
+
     while True:
         mode = _menu(stdscr, colors, folder)
         if mode is None:
@@ -49,7 +54,7 @@ def run(stdscr, colors):
             _undo(stdscr, colors, folder)
             continue
 
-        files = _select_files(stdscr, colors, folder)
+        files = _select_files(stdscr, colors, folder, recursive)
         if not files:
             continue
 
@@ -65,21 +70,23 @@ def _menu(stdscr, colors, folder):
 
     while True:
         h, w   = stdscr.getmaxyx()
-        list_h = h - 7
         stdscr.clear()
+        hh     = _header.draw_sub_header(stdscr, colors, TITLE)
+        _header.draw_footer(stdscr, colors)
+        list_h = h - hh - 5
 
-        _s(stdscr, 0, 0, f"  {TITLE}".ljust(w - 1), colors['help'])
         fstr = folder_str if len(folder_str) <= w - 14 else "…" + folder_str[-(w - 15):]
-        _s(stdscr, 2, 2, f"  Dossier : {fstr}", colors['name'])
-        _s(stdscr, 3, 0, "─" * (w - 1), colors['sep'])
+        _s(stdscr, hh,     2, f"  Dossier : {fstr}", colors['name'])
+        _s(stdscr, hh + 1, 0, "─" * (w - 1),         colors['sep'])
 
-        col_name = 32
+        col_name = 37
         for i, (name, desc) in enumerate(MODES[scroll:scroll + list_h]):
-            row    = 4 + i
+            row    = hh + 2 + i
             real_i = scroll + i
             is_sel = real_i == sel
             arrow  = "▶" if is_sel else " "
-            label  = f"  {arrow}  {name}"
+            fn_key = f"F{real_i + 1:<2}"
+            label  = f"  {fn_key}  {arrow}  {name}"
             attr   = colors['sel'] if is_sel else colors['normal']
             if is_sel:
                 _s(stdscr, row, 0, label[:w - 1].ljust(w - 1), attr)
@@ -93,9 +100,8 @@ def _menu(stdscr, colors, folder):
                     _s(stdscr, row, desc_col, desc[:w - desc_col - 1], colors['sep'])
 
         _s(stdscr, h - 2, 0,
-           "  ↑ ↓  Naviguer    Entrée  Choisir    Échap  Retour au menu principal  ".ljust(w - 1),
+           "  F1-F10  Accès direct    ↑ ↓  Naviguer    Entrée  Choisir    Échap  Retour  ".ljust(w - 1),
            colors['help'])
-        _s(stdscr, h - 1, 0, f"  {TITLE}  ".center(w - 1), colors['footer'])
         stdscr.refresh()
 
         key = stdscr.getch()
@@ -113,15 +119,20 @@ def _menu(stdscr, colors, folder):
             return sel
         elif key == 27:
             return None
+        elif curses.KEY_F1 <= key <= curses.KEY_F10:
+            idx = key - curses.KEY_F1
+            if idx < len(MODES):
+                return idx
 
 
 # ─── Sélection des fichiers ───────────────────────────────────────────────────
 
-def _select_files(stdscr, colors, folder):
+def _select_files(stdscr, colors, folder, recursive):
     try:
+        iterator = folder.rglob('*') if recursive else folder.iterdir()
         all_files = sorted(
-            p for p in folder.iterdir()
-            if p.is_file() and not p.name.startswith('.')
+            p for p in iterator
+            if p.is_file() and not p.name.startswith('.') and p.name != UNDO_FILE
         )
     except PermissionError:
         _wait(stdscr, colors, ["Impossible de lire le dossier."])
@@ -137,23 +148,25 @@ def _select_files(stdscr, colors, folder):
 
     while True:
         h, w   = stdscr.getmaxyx()
-        list_h = h - 6
         stdscr.clear()
+        hh     = _header.draw_sub_header(stdscr, colors, TITLE)
+        _header.draw_footer(stdscr, colors)
+        list_h = h - hh - 4
 
         nb_sel = sum(selected)
-        _s(stdscr, 0, 0,
+        _s(stdscr, hh,     0,
            f"  Sélection des fichiers  —  {nb_sel}/{len(all_files)} sélectionné(s)".ljust(w - 1),
            colors['help'])
-        _s(stdscr, 1, 0, "─" * (w - 1), colors['sep'])
+        _s(stdscr, hh + 1, 0, "─" * (w - 1), colors['sep'])
 
         for i, (path, is_sel) in enumerate(
             zip(all_files[scroll:scroll + list_h], selected[scroll:scroll + list_h])
         ):
-            row    = 2 + i
+            row    = hh + 2 + i
             real_i = scroll + i
             is_cur = real_i == cursor
             check  = "✔" if is_sel else " "
-            label  = f"  [{check}]  {path.name}"
+            label  = f"  [{check}]  {path.relative_to(folder) if recursive else path.name}"
             attr   = colors['sel'] if is_cur else colors['normal']
             if is_cur:
                 _s(stdscr, row, 0, label[:w - 1].ljust(w - 1), attr)
@@ -163,7 +176,6 @@ def _select_files(stdscr, colors, folder):
         _s(stdscr, h - 2, 0,
            "  ↑ ↓  Naviguer    Espace  Cocher/Décocher    A  Tout (dé)sélectionner    Entrée  Confirmer    Échap  Annuler  ".ljust(w - 1),
            colors['help'])
-        _s(stdscr, h - 1, 0, f"  {TITLE}  ".center(w - 1), colors['footer'])
         stdscr.refresh()
 
         key = stdscr.getch()
@@ -226,7 +238,7 @@ def _dispatch(stdscr, colors, folder, files, mode):
 # ─── Transformation prédéfinie ────────────────────────────────────────────────
 
 _DATE_RE = re.compile(
-    r'^(IMG)[_-](\d{4})[_-](\d{2})[_-](\d{2})[_-](\d{2})[_-](\d{2})[_-](\d{2})(.*?)$',
+    r'^IMG[_-]?(\d{4})[_-]?(\d{2})[_-]?(\d{2})[_-]?(\d{2})[_-]?(\d{2})[_-]?(\d{2})(.*?)$',
     re.IGNORECASE,
 )
 
@@ -234,8 +246,8 @@ def _transform_predefined(path, idx):
     m = _DATE_RE.match(path.stem)
     if not m:
         return None
-    _, Y, mo, D, H, Mi, S, rest = m.groups()
-    new_stem = f"IMG_{Y}-{mo}-{D}_{H}-{Mi}-{S}{rest}"
+    Y, mo, D, H, Mi, S, rest = m.groups()
+    new_stem = f"IMG_{Y}{mo}{D}_{H}{Mi}{S}{rest}"
     new_name = new_stem + path.suffix
     return None if new_name == path.name else new_name
 
@@ -503,42 +515,72 @@ def _params_exif(stdscr, colors):
     return transform
 
 
+# ─── Résolution de conflits ───────────────────────────────────────────────────
+
+def _resolve_conflict(folder, new_name, claimed):
+    """Retourne un nom libre en ajoutant _01, _02… si nécessaire."""
+    p = Path(new_name)
+    stem, ext = p.stem, p.suffix
+    candidate = new_name
+    counter = 1
+    while (folder / candidate).exists() or candidate in claimed:
+        candidate = f"{stem}_{counter:02d}{ext}"
+        counter += 1
+    return candidate
+
+
 # ─── Prévisualisation ─────────────────────────────────────────────────────────
 
 def _preview(stdscr, colors, files, transform):
-    pairs   = [(p.name, transform(p, i)) for i, p in enumerate(files)]
-    changes = sum(1 for _, n in pairs if n is not None)
+    pairs = []
+    for i, p in enumerate(files):
+        _progress(stdscr, colors, i, len(files), p.name, "Chargement de l'aperçu…")
+        pairs.append((p.name, transform(p, i)))
+
+    # Résoudre les conflits en simulant la séquence de renommage
+    folder  = files[0].parent if files else Path('.')
+    claimed = set()
+    resolved = []
+    for orig, new in pairs:
+        if new is None or new == orig:
+            resolved.append((orig, new, False))
+            continue
+        final = _resolve_conflict(folder, new, claimed)
+        claimed.add(final)
+        resolved.append((orig, final, final != new))
+
+    changes = sum(1 for _, n, _ in resolved if n is not None)
 
     scroll = 0
 
     while True:
         h, w   = stdscr.getmaxyx()
-        list_h = h - 8
-        col_w  = (w - 5) // 2
         stdscr.clear()
+        hh     = _header.draw_sub_header(stdscr, colors, TITLE)
+        _header.draw_footer(stdscr, colors)
+        list_h = h - hh - 6
+        col_w  = (w - 5) // 2
 
-        _s(stdscr, 0, 0,
+        _s(stdscr, hh,     0,
            f"  Prévisualisation  —  {changes} modification(s) / {len(files)} fichier(s)".ljust(w - 1),
            colors['help'])
-        _s(stdscr, 1, 0, "─" * (w - 1), colors['sep'])
-        _s(stdscr, 2, 2,          "Avant".ljust(col_w), colors['name'])
-        _s(stdscr, 2, 3 + col_w,  "Après",              colors['name'])
-        _s(stdscr, 3, 0, "─" * (w - 1), colors['sep'])
+        _s(stdscr, hh + 1, 0, "─" * (w - 1), colors['sep'])
+        _s(stdscr, hh + 2, 2,          "Avant".ljust(col_w), colors['name'])
+        _s(stdscr, hh + 2, 3 + col_w,  "Après",              colors['name'])
+        _s(stdscr, hh + 3, 0, "─" * (w - 1), colors['sep'])
 
-        for i, (orig, new) in enumerate(pairs[scroll:scroll + list_h]):
-            row    = 4 + i
-            real_i = scroll + i
+        for i, (orig, new, was_conflict) in enumerate(resolved[scroll:scroll + list_h]):
+            row = hh + 4 + i
 
             if new is None:
                 disp_new  = "—  (inchangé)"
                 attr_new  = colors['sep']
                 attr_orig = colors['sep']
             else:
-                conflict = (files[real_i].parent / new).exists() and new != orig
                 attr_orig = colors['normal']
-                if conflict:
-                    disp_new = f"⚠  {new}  (conflit !)"
-                    attr_new = colors['quit']
+                if was_conflict:
+                    disp_new = f"~  {new}  (renommé)"
+                    attr_new = colors['name']
                 else:
                     disp_new = new
                     attr_new = colors['key']
@@ -550,7 +592,6 @@ def _preview(stdscr, colors, files, transform):
         _s(stdscr, h - 2, 0,
            "  ↑ ↓  Défiler    F5  Appliquer    Échap  Annuler  ".ljust(w - 1),
            colors['help'])
-        _s(stdscr, h - 1, 0, f"  {TITLE}  ".center(w - 1), colors['footer'])
         stdscr.refresh()
 
         key = stdscr.getch()
@@ -573,19 +614,20 @@ def _apply(stdscr, colors, folder, files, transform):
     ok = skipped = errors = 0
     total = len(files)
 
+    claimed = set()
     for idx, path in enumerate(files):
         _progress(stdscr, colors, idx, total, path.name)
         new_name = transform(path, idx)
         if new_name is None:
             skipped += 1
             continue
+        new_name = _resolve_conflict(path.parent, new_name, claimed)
+        claimed.add(new_name)
         new_path = path.parent / new_name
-        if new_path.exists() and new_path != path:
-            errors += 1
-            continue
         try:
             path.rename(new_path)
-            undo_log[new_name] = path.name
+            rel_new = str(new_path.relative_to(folder))
+            undo_log[rel_new] = path.name
             ok += 1
         except OSError:
             errors += 1
@@ -631,9 +673,9 @@ def _undo(stdscr, colors, folder):
         return
 
     ok = errors = 0
-    for new_name, old_name in log.items():
-        new_path = folder / new_name
-        old_path = folder / old_name
+    for rel_new, old_name in log.items():
+        new_path = folder / rel_new
+        old_path = new_path.parent / old_name
         if new_path.exists() and not old_path.exists():
             try:
                 new_path.rename(old_path)
@@ -672,7 +714,8 @@ def _input(stdscr, colors, prompt, default=""):
         field_w = box_w - 6
 
         stdscr.clear()
-        _s(stdscr, 0, 0, f"  {TITLE}".ljust(w - 1), colors['help'])
+        _header.draw_sub_header(stdscr, colors, TITLE)
+        _header.draw_footer(stdscr, colors)
         _s(stdscr, y,           x, f"┌{'─'*(box_w-2)}┐", colors['key'])
         _s(stdscr, y + box_h-1, x, f"└{'─'*(box_w-2)}┘", colors['key'])
         for r in range(1, box_h - 1):
@@ -688,7 +731,6 @@ def _input(stdscr, colors, prompt, default=""):
 
         _s(stdscr, y + box_h - 2, x + 3,
            "Entrée  Valider    Échap  Annuler", colors['sep'])
-        _s(stdscr, h - 1, 0, f"  {TITLE}  ".center(w - 1), colors['footer'])
 
         cur_col = x + 3 + min(len(inp_str), field_w)
         try:
@@ -736,6 +778,8 @@ def _choice(stdscr, colors, title, options):
         x      = max(0, (w - box_w) // 2)
 
         stdscr.clear()
+        _header.draw_sub_header(stdscr, colors, TITLE)
+        _header.draw_footer(stdscr, colors)
         _s(stdscr, y,           x, f"┌{'─'*(box_w-2)}┐", colors['key'])
         _s(stdscr, y + box_h-1, x, f"└{'─'*(box_w-2)}┘", colors['key'])
         t = f"┤ {title} ├"
@@ -758,7 +802,6 @@ def _choice(stdscr, colors, title, options):
         _s(stdscr, h - 2, 0,
            "  ↑ ↓  Naviguer    Entrée  Choisir    Échap  Annuler  ".ljust(w - 1),
            colors['help'])
-        _s(stdscr, h - 1, 0, f"  {TITLE}  ".center(w - 1), colors['footer'])
         stdscr.refresh()
 
         key = stdscr.getch()
@@ -772,30 +815,32 @@ def _choice(stdscr, colors, title, options):
             return None
 
 
-def _progress(stdscr, colors, i, total, filename):
+def _progress(stdscr, colors, i, total, filename, label="Renommage en cours…"):
     h, w  = stdscr.getmaxyx()
     bar_w = min(52, w - 12)
     done  = int(bar_w * (i + 1) / total) if total else bar_w
     bar   = f"[{'█' * done}{'░' * (bar_w - done)}]  {(i+1)*100//total if total else 100}%"
     fname = filename if len(filename) <= w - 4 else "…" + filename[-(w - 5):]
-    mid   = h // 2
     stdscr.clear()
-    _s(stdscr, 0,       0, f"  {TITLE}".ljust(w - 1), colors['help'])
-    _s(stdscr, mid - 1, 2, "Renommage en cours…",      colors['name'])
-    _s(stdscr, mid,     2, bar[:w - 3],                colors['key'])
-    _s(stdscr, mid + 1, 2, fname,                      colors['normal'])
-    _s(stdscr, h - 1,   0, f"  {TITLE}  ".center(w - 1), colors['footer'])
+    hh  = _header.draw_sub_header(stdscr, colors, TITLE)
+    _header.draw_footer(stdscr, colors)
+    mid = hh + (h - 1 - hh) // 2
+    _s(stdscr, mid - 1, 2, label,       colors['name'])
+    _s(stdscr, mid,     2, bar[:w - 3], colors['key'])
+    _s(stdscr, mid + 1, 2, fname,       colors['normal'])
     stdscr.refresh()
 
 
 def _box(stdscr, colors, lines, title=""):
     h, w  = stdscr.getmaxyx()
+    stdscr.clear()
+    hh    = _header.draw_sub_header(stdscr, colors, TITLE)
+    _header.draw_footer(stdscr, colors)
     box_w = min(w - 4, max((len(l) for l in lines), default=0) + 8)
     box_w = max(box_w, len(title) + 8, 52)
     box_h = len(lines) + 4
-    y     = max(0, (h - box_h) // 2)
+    y     = hh + max(0, (h - 1 - hh - box_h) // 2)
     x     = max(0, (w - box_w) // 2)
-    stdscr.clear()
     _s(stdscr, y,           x, f"┌{'─'*(box_w-2)}┐", colors['key'])
     _s(stdscr, y + box_h-1, x, f"└{'─'*(box_w-2)}┘", colors['key'])
     if title:
@@ -806,7 +851,6 @@ def _box(stdscr, colors, lines, title=""):
         _s(stdscr, y + r, x + box_w-1, '│', colors['key'])
     for i, line in enumerate(lines):
         _s(stdscr, y + 2 + i, x + 4, line[:box_w - 8], colors['normal'])
-    _s(stdscr, h - 1, 0, f"  {TITLE}  ".center(w - 1), colors['footer'])
     stdscr.refresh()
 
 

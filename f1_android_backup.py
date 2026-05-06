@@ -13,12 +13,15 @@ Flux :
 """
 
 import curses
+import hashlib
+import json
 import os
 import shutil
 from pathlib import Path
 
 import kdeconnect
 import folder_browser
+import header as _header
 
 
 MEDIA_EXT = {
@@ -64,8 +67,8 @@ def run(stdscr, colors):
         "Montage du système de fichiers via SFTP…",
     ])
 
-    with kdeconnect.DeviceMount(device['id']) as mount_point:
-        if mount_point is None:
+    with kdeconnect.DeviceMount(device['id']) as dm:
+        if dm is None:
             _error(stdscr, colors,
                    "Impossible de monter le périphérique.",
                    "Vérifiez que le plugin 'Accès aux fichiers' est activé",
@@ -73,7 +76,7 @@ def run(stdscr, colors):
             return
 
         # Détection automatique du dossier DCIM
-        src = _find_dcim(mount_point)
+        src = _find_dcim(dm.storage_roots())
 
         # 4. Dossier de destination ───────────────────────────────────────────
         dest = folder_browser.browse(
@@ -104,7 +107,7 @@ def run(stdscr, colors):
                 return
 
         # 6. Transfert ────────────────────────────────────────────────────────
-        existing = _index_existing(compare)
+        existing = _index_existing(compare, stdscr, colors)
         copied, skipped, errors = _transfer(stdscr, colors, src, dest, existing)
 
         # 7. Résumé ───────────────────────────────────────────────────────────
@@ -121,27 +124,136 @@ def run(stdscr, colors):
 
 # ─── Logique métier ───────────────────────────────────────────────────────────
 
-def _find_dcim(mount_point):
-    """Retourne le meilleur dossier source trouvé sur le périphérique."""
-    for candidate in ('DCIM/Camera', 'DCIM', ''):
-        p = mount_point / candidate if candidate else mount_point
-        if p.exists():
-            return p
-    return mount_point
+def _find_dcim(storage_roots):
+    """
+    Retourne le meilleur dossier source parmi les racines de stockage.
+    Cherche DCIM/Camera puis DCIM dans chaque racine, repli sur la première racine.
+    """
+    for root in storage_roots:
+        for candidate in ('DCIM/Camera', 'DCIM'):
+            p = root / candidate
+            if p.exists():
+                return p
+    return storage_roots[0]
 
 
-def _index_existing(compare_dir):
+_HASH_CHUNK  = 64 * 1024       # 64 Ko — suffisant pour identifier un fichier media
+_CACHE_FILE  = '.f1_index_cache.json'
+
+
+def _file_signature(path):
+    """Retourne (taille, md5_des_64_premiers_Ko) ou None en cas d'erreur."""
+    try:
+        if not path.is_file():
+            return None
+        size = path.stat().st_size
+        h = hashlib.md5(usedforsecurity=False)
+        with open(path, 'rb') as f:
+            h.update(f.read(_HASH_CHUNK))
+        return (size, h.hexdigest())
+    except Exception:
+        return None
+
+
+def _folder_fingerprint(files_with_sizes):
     """
-    Construit un ensemble de noms de fichiers (en minuscules) présents
-    dans le dossier de comparaison, pour détecter les doublons par nom.
+    Hash MD5 de la liste triée (chemin, taille) — aucune lecture de contenu.
+    Invalide si un fichier est ajouté, supprimé ou modifié (taille changée).
     """
-    names = set()
-    if compare_dir:
-        for root, _, files in os.walk(compare_dir):
-            for f in files:
-                if Path(f).suffix.lower() in MEDIA_EXT:
-                    names.add(f.lower())
-    return names
+    entries = sorted(f"{rel}:{size}" for rel, size, _ in files_with_sizes)
+    h = hashlib.md5('\n'.join(entries).encode(), usedforsecurity=False)
+    return h.hexdigest()
+
+
+def _load_cache(compare_dir, fingerprint):
+    """Retourne un set de signatures si le cache existe et correspond au fingerprint."""
+    cache_path = compare_dir / _CACHE_FILE
+    if not cache_path.exists():
+        return None
+    try:
+        data = json.loads(cache_path.read_text(encoding='utf-8'))
+        if data.get('fingerprint') != fingerprint:
+            return None
+        return {tuple(s) for s in data['signatures']}
+    except Exception:
+        return None
+
+
+def _save_cache(compare_dir, fingerprint, sigs):
+    """Sauvegarde les signatures dans le cache."""
+    try:
+        data = {'fingerprint': fingerprint, 'signatures': [list(s) for s in sigs]}
+        (compare_dir / _CACHE_FILE).write_text(
+            json.dumps(data, ensure_ascii=False),
+            encoding='utf-8',
+        )
+    except Exception:
+        pass
+
+
+def _index_existing(compare_dir, stdscr, colors):
+    """
+    Construit un ensemble de signatures (taille, hash_partiel) pour les médias
+    du dossier de comparaison, récursivement.
+    Utilise un cache si le dossier n'a pas changé depuis le dernier indexage.
+    """
+    sigs = set()
+    if not compare_dir:
+        return sigs
+
+    # Collecte fichiers + tailles (pas de lecture de contenu)
+    all_files = []
+    for root, _, files in os.walk(compare_dir):
+        for f in files:
+            p = Path(root) / f
+            if p.name == _CACHE_FILE:
+                continue
+            if p.suffix.lower() in MEDIA_EXT:
+                try:
+                    all_files.append((str(p.relative_to(compare_dir)), p.stat().st_size, p))
+                except OSError:
+                    pass
+
+    if not all_files:
+        return sigs
+
+    # Vérifie si le cache est encore valide
+    fingerprint = _folder_fingerprint(all_files)
+    cached = _load_cache(compare_dir, fingerprint)
+    if cached is not None:
+        return cached
+
+    # Cache absent ou périmé : hachage avec barre de progression
+    total = len(all_files)
+
+    for i, (_, __, p) in enumerate(all_files):
+        h, w  = stdscr.getmaxyx()
+        bar_w  = min(50, w - 20)
+        filled = int(bar_w * (i + 1) / total) if total else bar_w
+        bar    = f"[{'█' * filled}{'░' * (bar_w - filled)}]"
+        pct    = f"  {i + 1}/{total}  {bar}  {(i + 1) * 100 // total if total else 100}%"
+        fname  = p.name
+        if len(fname) > w - 4:
+            fname = "…" + fname[-(w - 5):]
+
+        try:
+            stdscr.clear()
+            hh = _header.draw_sub_header(stdscr, colors, TITLE)
+            _header.draw_footer(stdscr, colors)
+            mid = hh + (h - 1 - hh) // 2
+            _s(stdscr, mid - 2, 2, "Indexation du dossier de comparaison…", colors['name'])
+            _s(stdscr, mid,     2, pct[:w - 3],                              colors['key'])
+            _s(stdscr, mid + 1, 2, fname,                                    colors['normal'])
+            stdscr.refresh()
+        except curses.error:
+            pass
+
+        sig = _file_signature(p)
+        if sig is not None:
+            sigs.add(sig)
+
+    _save_cache(compare_dir, fingerprint, sigs)
+    return sigs
 
 
 def _transfer(stdscr, colors, src, dest, existing):
@@ -155,11 +267,9 @@ def _transfer(stdscr, colors, src, dest, existing):
     skipped = 0
     errors  = 0
 
-    h, w = stdscr.getmaxyx()
-    mid   = h // 2
-
     for i, src_file in enumerate(files):
         # Affichage de la progression
+        h, w = stdscr.getmaxyx()
         bar_w    = min(50, w - 20)
         filled   = int(bar_w * (i + 1) / total) if total else bar_w
         bar      = f"[{'█' * filled}{'░' * (bar_w - filled)}]"
@@ -170,17 +280,19 @@ def _transfer(stdscr, colors, src, dest, existing):
 
         try:
             stdscr.clear()
-            _s(stdscr, 0, 0, f"  {TITLE}".ljust(w - 1), colors['help'])
+            hh = _header.draw_sub_header(stdscr, colors, TITLE)
+            _header.draw_footer(stdscr, colors)
+            mid = hh + (h - 1 - hh) // 2
             _s(stdscr, mid - 2, 2, "Transfert en cours…", colors['name'])
             _s(stdscr, mid,     2, pct[:w - 3],           colors['key'])
             _s(stdscr, mid + 1, 2, fname,                 colors['normal'])
-            _s(stdscr, h - 1, 0, f"  {TITLE}  ".center(w - 1), colors['footer'])
             stdscr.refresh()
         except curses.error:
             pass
 
         # Doublon ?
-        if src_file.name.lower() in existing:
+        sig = _file_signature(src_file)
+        if sig is not None and sig in existing:
             skipped += 1
             continue
 
@@ -193,7 +305,8 @@ def _transfer(stdscr, colors, src, dest, existing):
 
         try:
             shutil.copy2(src_file, dst)
-            existing.add(src_file.name.lower())
+            if sig is not None:
+                existing.add(sig)
             copied += 1
         except Exception:
             errors += 1
@@ -207,13 +320,15 @@ def _box(stdscr, colors, lines, title=""):
     """Affiche un encadré centré avec les lignes données."""
     h, w = stdscr.getmaxyx()
     stdscr.clear()
+    hh = _header.draw_sub_header(stdscr, colors, TITLE)
+    _header.draw_footer(stdscr, colors)
 
     box_w = max((len(l) for l in lines), default=0) + 8
     box_w = max(box_w, len(title) + 8, 44)
     box_w = min(box_w, w - 4)
     box_h = len(lines) + 4
 
-    y = max(0, (h - box_h) // 2)
+    y = hh + max(0, (h - 1 - hh - box_h) // 2)
     x = max(0, (w - box_w) // 2)
 
     top = f"┌{'─' * (box_w - 2)}┐"
@@ -232,7 +347,6 @@ def _box(stdscr, colors, lines, title=""):
     for i, line in enumerate(lines):
         _s(stdscr, y + 2 + i, x + 4, line[:box_w - 8], colors['normal'])
 
-    _s(stdscr, h - 1, 0, f"  {TITLE}  ".center(w - 1), colors['footer'])
     stdscr.refresh()
 
 
@@ -272,12 +386,13 @@ def _pick_device(stdscr, colors, devices):
     while True:
         h, w = stdscr.getmaxyx()
         stdscr.clear()
+        hh = _header.draw_sub_header(stdscr, colors, TITLE)
+        _header.draw_footer(stdscr, colors)
 
-        _s(stdscr, 0, 0, f"  {TITLE}".ljust(w - 1), colors['help'])
-        _s(stdscr, 2, 4, "Plusieurs périphériques disponibles :", colors['name'])
+        _s(stdscr, hh + 1, 4, "Plusieurs périphériques disponibles :", colors['name'])
 
         for i, dev in enumerate(devices):
-            row   = 4 + i * 2
+            row   = hh + 3 + i * 2
             arrow = "▶" if i == selected else " "
             label = f"  {arrow}  {dev['name']}"
             attr  = colors['sel'] if i == selected else colors['normal']
@@ -289,7 +404,6 @@ def _pick_device(stdscr, colors, devices):
         _s(stdscr, h - 2, 0,
            "  ↑ ↓  Naviguer    Entrée  Sélectionner    Échap  Annuler  ".ljust(w - 1),
            colors['help'])
-        _s(stdscr, h - 1, 0, f"  {TITLE}  ".center(w - 1), colors['footer'])
         stdscr.refresh()
 
         key = stdscr.getch()

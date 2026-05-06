@@ -5,7 +5,6 @@ Stratégies de montage (dans l'ordre) :
   2. kdeconnect-sshfs (paquet optionnel)
 """
 
-import re
 import subprocess
 import tempfile
 from pathlib import Path
@@ -17,10 +16,12 @@ def list_devices():
     """
     Retourne une liste de dicts {id, name, reachable}.
     Retourne None si kdeconnect-cli est introuvable.
+    Utilise -a (associés et joignables uniquement) avec --id-name-only
+    pour un parsing fiable indépendant de la langue et du format.
     """
     try:
         r = subprocess.run(
-            ['kdeconnect-cli', '-l'],
+            ['kdeconnect-cli', '-a', '--id-name-only'],
             capture_output=True, text=True, timeout=10
         )
     except FileNotFoundError:
@@ -29,13 +30,14 @@ def list_devices():
         return []
 
     devices = []
-    for m in re.finditer(r'-\s+(.+?):\s+(\S+)\s+\((.+?)\)', r.stdout):
-        name, dev_id, status = m.groups()
-        devices.append({
-            'name':      name.strip(),
-            'id':        dev_id.strip(),
-            'reachable': 'reachable' in status,
-        })
+    for line in r.stdout.splitlines():
+        parts = line.split(None, 1)
+        if len(parts) == 2:
+            devices.append({
+                'id':        parts[0],
+                'name':      parts[1],
+                'reachable': True,
+            })
     return devices
 
 
@@ -75,21 +77,46 @@ class DeviceMount:
         if mp:
             self.mount_point = mp
             self._via_dbus   = True
-            return mp
+            return self
 
         mp = self._mount_via_sshfs()
         if mp:
             self.mount_point = mp
-            return mp
+            return self
 
         return None
+
+    def storage_roots(self):
+        """
+        Retourne les Path des racines de stockage exposées par KDE Connect
+        (via getDirectories D-Bus). Repli sur le point de montage si indisponible.
+        """
+        if not self.mount_point:
+            return [self.mount_point]
+        try:
+            r = subprocess.run(
+                ['qdbus6', 'org.kde.kdeconnect',
+                 f'/modules/kdeconnect/devices/{self.device_id}/sftp',
+                 'org.kde.kdeconnect.device.sftp.getDirectories'],
+                capture_output=True, text=True, timeout=5
+            )
+            roots = []
+            for line in r.stdout.splitlines():
+                path_str = line.split(':')[0].strip()
+                if path_str:
+                    p = Path(path_str)
+                    if p.exists():
+                        roots.append(p)
+            return roots if roots else [self.mount_point]
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            return [self.mount_point]
 
     def __exit__(self, *_):
         if not self.mount_point:
             return
         if self._via_dbus:
             subprocess.run(
-                ['qdbus', 'org.kde.kdeconnect',
+                ['qdbus6', 'org.kde.kdeconnect',
                  f'/modules/kdeconnect/devices/{self.device_id}/sftp',
                  'org.kde.kdeconnect.device.sftp.unmount'],
                 capture_output=True, timeout=10
@@ -107,16 +134,16 @@ class DeviceMount:
     # ── Stratégies internes ───────────────────────────────────────────────────
 
     def _mount_via_dbus(self):
-        """Montage via l'interface D-Bus de KDE Connect (qdbus)."""
+        """Montage via l'interface D-Bus de KDE Connect (qdbus6)."""
         obj = f'/modules/kdeconnect/devices/{self.device_id}/sftp'
         try:
             subprocess.run(
-                ['qdbus', 'org.kde.kdeconnect', obj,
+                ['qdbus6', 'org.kde.kdeconnect', obj,
                  'org.kde.kdeconnect.device.sftp.mountAndWait'],
                 capture_output=True, timeout=20
             )
             r = subprocess.run(
-                ['qdbus', 'org.kde.kdeconnect', obj,
+                ['qdbus6', 'org.kde.kdeconnect', obj,
                  'org.kde.kdeconnect.device.sftp.mountPoint'],
                 capture_output=True, text=True, timeout=5
             )

@@ -5,17 +5,16 @@ from version import APP_NAME, __version__
 MENU_ITEMS = [
     ("F1", "Sauvegarde Android via KDE Connect"),   # 0  col gauche  ligne 0
     ("F2", "Détection de doublons d'images"),        # 1  col gauche  ligne 1
-    ("F3", "Tri de photos via métadonnées"),         # 2  col gauche  ligne 2
+    ("F3", "Tri de photos via métadonnées"),         # 2  col droite  ligne 1
     ("F4", "Renommage de fichiers en lot"),          # 3  col droite  ligne 0
-    ("F5", "Floutage de visages (Digikam)"),         # 4  col droite  ligne 1
-    ("F6", "Changelog"),                             # 5  bas gauche
-    ("F8", "Quitter"),                               # 6  bas droite
+    ("F6", "Changelog"),                             # 4  bas gauche
+    ("F8", "Quitter"),                               # 5  bas droite
 ]
 
-FKEY_TO_IDX = {1: 0, 2: 1, 3: 2, 4: 3, 5: 4, 6: 5, 8: 6}
+FKEY_TO_IDX = {1: 0, 2: 1, 3: 2, 4: 3, 6: 4, 8: 5}
 
 # Correspondances ←→ : (gauche, droite)
-LR_PAIRS = [(0, 3), (1, 4), (5, 6)]
+LR_PAIRS = [(0, 3), (1, 2), (4, 5)]
 
 
 def setup_colors():
@@ -29,8 +28,7 @@ def setup_colors():
     curses.init_pair(6, curses.COLOR_RED,     -1)                          # Quitter
     curses.init_pair(7, curses.COLOR_BLACK,   curses.COLOR_WHITE)          # barre d'aide
     curses.init_pair(8, curses.COLOR_YELLOW,  curses.COLOR_BLUE)           # [Fx] sélectionné
-    grey = 8 if curses.COLORS >= 16 else curses.COLOR_BLACK
-    curses.init_pair(9, grey, curses.COLOR_WHITE)                          # footer
+    curses.init_pair(9, curses.COLOR_WHITE,   curses.COLOR_BLUE)           # footer
 
     return {
         "logo":     curses.color_pair(1),
@@ -43,7 +41,7 @@ def setup_colors():
         "quit":     curses.color_pair(6),
         "quit_key": curses.color_pair(6) | curses.A_BOLD,
         "help":     curses.color_pair(7),
-        "footer":   curses.color_pair(9),
+        "footer":   curses.color_pair(9) | curses.A_BOLD,
     }
 
 
@@ -136,8 +134,8 @@ def draw_menu(stdscr, selected_idx, colors):
     half_w    = w // 2
     item_h    = 4   # 3 lignes encadré + 1 ligne vide
 
-    # ── Grille principale : F1/F4  F2/F5  F3(seul) ───────────────────────────
-    grid = [(0, 3), (1, 4), (2, None)]
+    # ── Grille principale : F1/F4  F2/F3 ─────────────────────────────────────
+    grid = [(0, 3), (1, 2)]
 
     for row_num, (li, ri) in enumerate(grid):
         base_row = start_row + row_num * item_h
@@ -146,10 +144,9 @@ def draw_menu(stdscr, selected_idx, colors):
         draw_item_box(stdscr, base_row, 4, fkey, label,
                       selected_idx == li, False, colors, w)
 
-        if ri is not None:
-            fkey, label = MENU_ITEMS[ri]
-            draw_item_box(stdscr, base_row, half_w + 4, fkey, label,
-                          selected_idx == ri, False, colors, w)
+        fkey, label = MENU_ITEMS[ri]
+        draw_item_box(stdscr, base_row, half_w + 4, fkey, label,
+                      selected_idx == ri, False, colors, w)
 
     # ── Ligne de séparation ───────────────────────────────────────────────────
     sep_row = start_row + len(grid) * item_h
@@ -161,15 +158,15 @@ def draw_menu(stdscr, selected_idx, colors):
 
     # ── Bas : F6 Changelog (gauche)  |  F8 Quitter (droite) ──────────────────
     bot_row = sep_row + 1
-    fkey6, label6 = MENU_ITEMS[5]
-    fkey8, label8 = MENU_ITEMS[6]
+    fkey6, label6 = MENU_ITEMS[4]
+    fkey8, label8 = MENU_ITEMS[5]
     draw_item_box(stdscr, bot_row, 4,          fkey6, label6,
-                  selected_idx == 5, False, colors, w)
+                  selected_idx == 4, False, colors, w)
     draw_item_box(stdscr, bot_row, half_w + 4, fkey8, label8,
-                  selected_idx == 6, True,  colors, w)
+                  selected_idx == 5, True,  colors, w)
 
     # ── Barre d'aide ─────────────────────────────────────────────────────────
-    help_text = "  ↑ ↓  Naviguer    ← →  Changer colonne    Fx  Sélectionner    F8  Quitter  "
+    help_text = "  ↑ ↓  Naviguer    ← →  Changer colonne    F8  Quitter  "
     try:
         stdscr.addstr(h - 2, 0, help_text[:w].ljust(w - 1), colors["help"])
     except curses.error:
@@ -199,7 +196,9 @@ def _launch(stdscr, colors, idx):
     elif idx == 3:
         import f4_rename
         f4_rename.run(stdscr, colors)
-    # idx 4–5 : à implémenter (F5–F6)
+    elif idx == 4:
+        import f6_changelog
+        f6_changelog.run(stdscr, colors)
 
 
 def main(stdscr):
@@ -238,9 +237,6 @@ def main(stdscr):
             _launch(stdscr, colors, selected_idx)
         elif key == curses.KEY_F4:
             selected_idx = FKEY_TO_IDX[4]
-            _launch(stdscr, colors, selected_idx)
-        elif key == curses.KEY_F5:
-            selected_idx = FKEY_TO_IDX[5]
             _launch(stdscr, colors, selected_idx)
         elif key == curses.KEY_F6:
             selected_idx = FKEY_TO_IDX[6]

@@ -15,10 +15,12 @@ Règle de conservation (par ordre de priorité) :
 import curses
 import hashlib
 import os
+import subprocess
 from datetime import datetime
 from pathlib import Path
 
 import folder_browser
+import header as _header
 
 MEDIA_EXT    = {
     '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.heic', '.heif',
@@ -195,7 +197,10 @@ def _review(stdscr, colors, groups):
 
     while True:
         h, w       = stdscr.getmaxyx()
-        list_h     = h - 6
+        stdscr.clear()
+        hh         = _header.draw_sub_header(stdscr, colors, TITLE)
+        _header.draw_footer(stdscr, colors)
+        list_h     = h - hh - 4
         to_delete  = [p for p, v in marks.items() if v]
         total_size = sum(_fsize(p) for p in to_delete)
         cursor_row = file_rows[cursor_fi] if file_rows else -1
@@ -207,33 +212,29 @@ def _review(stdscr, colors, groups):
             scroll = cursor_row - list_h + 1
         scroll = max(0, min(scroll, max(0, len(rows) - list_h)))
 
-        stdscr.clear()
-
         # En-tête
         info = (f"  {len(groups)} groupe(s) · "
                 f"{len(to_delete)} cochés à supprimer · "
                 f"{_fmt_size(total_size)}")
-        _s(stdscr, 0, 0, f"  {TITLE}".ljust(w - 1), colors['help'])
-        _s(stdscr, 1, 0, info[:w], colors['name'])
-        _s(stdscr, 2, 0, "─" * (w - 1), colors['sep'])
+        _s(stdscr, hh,     0, info[:w],           colors['name'])
+        _s(stdscr, hh + 1, 0, "─" * (w - 1),     colors['sep'])
 
         # Lignes visibles
         max_scroll = max(0, len(rows) - list_h)
         for i, row in enumerate(rows[scroll:scroll + list_h]):
             real_i = scroll + i
-            _draw_row(stdscr, 3 + i, row, marks, real_i == cursor_row, colors, w)
+            _draw_row(stdscr, hh + 2 + i, row, marks, real_i == cursor_row, colors, w)
 
         # Indicateurs de scroll
         if scroll > 0:
-            _s(stdscr, 3, w - 5, " ↑ ", colors['key'])
+            _s(stdscr, hh + 2, w - 5, " ↑ ", colors['key'])
         if scroll < max_scroll:
-            _s(stdscr, 3 + list_h - 1, w - 5, " ↓ ", colors['key'])
+            _s(stdscr, hh + 2 + list_h - 1, w - 5, " ↓ ", colors['key'])
 
         # Barre d'actions
         _s(stdscr, h - 2, 0,
-           "  ↑ ↓ PgUp PgDn  Naviguer    Espace  Cocher/Décocher    [F1] Supprimer les cochés    [Échap] Annuler  ".ljust(w - 1),
+           "  ↑ ↓ PgUp PgDn  Naviguer    Espace  Cocher/Décocher    [F1] Supprimer les cochés    [F2] Décocher tout    [F3] Aperçu    [Échap] Annuler  ".ljust(w - 1),
            colors['help'])
-        _s(stdscr, h - 1, 0, f"  {TITLE}  ".center(w - 1), colors['footer'])
         stdscr.refresh()
 
         key = stdscr.getch()
@@ -256,6 +257,13 @@ def _review(stdscr, colors, groups):
             if _confirm(stdscr, colors, len(to_delete),
                         sum(_fsize(p) for p in to_delete)):
                 return to_delete
+        elif key == curses.KEY_F2:
+            for p in marks:
+                marks[p] = False
+        elif key == curses.KEY_F3 and file_rows:
+            path = rows[file_rows[cursor_fi]][1]
+            subprocess.Popen(['xdg-open', str(path)],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         elif key == 27:
             return None
 
@@ -355,13 +363,13 @@ def _progress(stdscr, colors, i, total, filename, label):
     done  = int(bar_w * (i + 1) / total) if total else bar_w
     bar   = f"[{'█' * done}{'░' * (bar_w - done)}]  {(i+1)*100//total if total else 100}%"
     fname = filename if len(filename) <= w - 4 else "…" + filename[-(w - 5):]
-    mid   = h // 2
     stdscr.clear()
-    _s(stdscr, 0,       0, f"  {TITLE}".ljust(w - 1),  colors['help'])
-    _s(stdscr, mid - 1, 2, label,                       colors['name'])
-    _s(stdscr, mid,     2, bar[:w - 3],                 colors['key'])
-    _s(stdscr, mid + 1, 2, fname,                       colors['normal'])
-    _s(stdscr, h - 1,   0, f"  {TITLE}  ".center(w-1), colors['footer'])
+    hh  = _header.draw_sub_header(stdscr, colors, TITLE)
+    _header.draw_footer(stdscr, colors)
+    mid = hh + (h - 1 - hh) // 2
+    _s(stdscr, mid - 1, 2, label,       colors['name'])
+    _s(stdscr, mid,     2, bar[:w - 3], colors['key'])
+    _s(stdscr, mid + 1, 2, fname,       colors['normal'])
     stdscr.refresh()
 
 
@@ -377,10 +385,12 @@ def _wait(stdscr, colors, lines):
 def _box(stdscr, colors, lines, title=""):
     h, w  = stdscr.getmaxyx()
     stdscr.clear()
+    hh    = _header.draw_sub_header(stdscr, colors, TITLE)
+    _header.draw_footer(stdscr, colors)
     box_w = min(w - 4, max((len(l) for l in lines), default=0) + 8, )
     box_w = max(box_w, len(title) + 8, 50)
     box_h = len(lines) + 4
-    y     = max(0, (h - box_h) // 2)
+    y     = hh + max(0, (h - 1 - hh - box_h) // 2)
     x     = max(0, (w - box_w) // 2)
 
     _s(stdscr, y,           x, f"┌{'─'*(box_w-2)}┐", colors['key'])
@@ -393,7 +403,6 @@ def _box(stdscr, colors, lines, title=""):
         _s(stdscr, y + i, x + box_w-1, '│', colors['key'])
     for i, line in enumerate(lines):
         _s(stdscr, y + 2 + i, x + 4, line[:box_w - 8], colors['normal'])
-    _s(stdscr, h-1, 0, f"  {TITLE}  ".center(w-1), colors['footer'])
     stdscr.refresh()
 
 
