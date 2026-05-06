@@ -2,16 +2,6 @@
 
 Application en ligne de commande (TUI curses) pour la gestion de photos et vidéos sous Linux.
 
-```
-                                     ::*%#=:
-    :-==::                        :-+#*#@@=*:
-    -#%#+*-:                     -##*%@@@@+*:
-   :-%@@@%=#+:                 :=%*%##%@@@=%:
-    -#@@%%@%*%+::           ::-#@+#%@@@@@@=%:
-    :+%@@%*@%+%@*:::=+*#%%@@@@@@#%%*++++*%+#:
-    .:#@@@@#*#:#@@@@@@@@@@@@@@@@%+##%@%%%##=:
-```
-
 ## Fonctionnalités
 
 | Touche | Module | Description |
