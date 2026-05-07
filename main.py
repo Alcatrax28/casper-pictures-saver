@@ -30,6 +30,7 @@ def setup_colors():
     curses.init_pair(7, curses.COLOR_BLACK,   curses.COLOR_WHITE)          # barre d'aide
     curses.init_pair(8, curses.COLOR_YELLOW,  curses.COLOR_BLUE)           # [Fx] sélectionné
     curses.init_pair(9, curses.COLOR_WHITE,   curses.COLOR_BLUE)           # footer
+    curses.init_pair(10, curses.COLOR_BLACK,  curses.COLOR_YELLOW)         # avertissement
 
     return {
         "logo":     curses.color_pair(1),
@@ -45,6 +46,7 @@ def setup_colors():
         "dim":      curses.color_pair(3),
         "help":     curses.color_pair(7),
         "footer":   curses.color_pair(9) | curses.A_BOLD,
+        "warn":     curses.color_pair(10) | curses.A_BOLD,
     }
 
 

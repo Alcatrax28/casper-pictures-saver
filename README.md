@@ -22,7 +22,7 @@ Application en ligne de commande (TUI curses) pour la gestion de photos et vidé
 - Comparaison par **contenu** (hash MD5 partiel + taille) pour éviter les doublons
 - Cache d'indexation persistant : pas de re-hachage si le dossier n'a pas changé
 - Animation de progression (chat ASCII) dans un thread dédié — reste fluide même sur des fichiers volumineux
-- Annulation propre avec **Échap** : le fichier en cours se termine, puis l'opération s'arrête
+- Annulation propre avec **Échap** : confirmation visuelle immédiate (barre jaune), le fichier en cours se termine, puis l'opération s'arrête
 
 ### F2 — Détection de doublons de médias
 

@@ -62,7 +62,7 @@ class ProgressAnim:
             self._i     = i
             self._fname = filename
 
-    def _draw(self, i, fname, frame):
+    def _draw(self, i, fname, frame, cancelling):
         stdscr = self._stdscr
         colors = self._colors
         h, w   = stdscr.getmaxyx()
@@ -81,9 +81,14 @@ class ProgressAnim:
         _s(stdscr, mid - 1, 2, f"{cat_bot}  {self._label}",  colors['name'])
         _s(stdscr, mid,     2, bar[:w - 3],                   colors['key'])
         _s(stdscr, mid + 1, 2, fname_disp,                    colors['normal'])
-        _s(stdscr, h - 2,  0,
-           "  Échap  Annuler après le fichier en cours  ".ljust(w - 1),
-           colors['help'])
+        if cancelling:
+            _s(stdscr, h - 2, 0,
+               "  Annulation après le fichier en cours…  ".ljust(w - 1),
+               colors['warn'])
+        else:
+            _s(stdscr, h - 2, 0,
+               "  Échap  Annuler après le fichier en cours  ".ljust(w - 1),
+               colors['help'])
         stdscr.refresh()
 
     def _run(self):
@@ -98,7 +103,7 @@ class ProgressAnim:
                     i, fname, frame = self._i, self._fname, self._frame
                     self._frame = (self._frame + 1) % len(_CAT)
                 try:
-                    self._draw(i, fname, frame)
+                    self._draw(i, fname, frame, self._cancelled.is_set())
                 except curses.error:
                     pass
                 if self._stop.wait(_INTERVAL):

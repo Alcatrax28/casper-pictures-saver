@@ -5,6 +5,13 @@ import header as _header
 TITLE = "Changelog"
 
 ENTRIES = [
+    ("v1.3.1", "2026-05-07  —  Indicateur visuel d'annulation", [
+        "[Toutes les barres de progression]  Confirmation visuelle de l'annulation",
+        "      Des que la touche Echap est pressee, la barre d'aide passe en",
+        "      jaune gras : 'Annulation apres le fichier en cours...'",
+        "      L'utilisateur voit immediatement que la demande a bien ete recue.",
+        "      Nouvelle couleur 'warn' (noir sur jaune) dans la palette de couleurs.",
+    ]),
     ("v1.3.0", "2026-05-07  —  Animation, annulation propre, etiquettes medias", [
         "[Toutes les barres de progression]  Chat ASCII anime",
         "      Remplacement du spinner |/-\\ par un chat ASCII 4 frames.",
