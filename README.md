@@ -8,8 +8,9 @@ Application en ligne de commande (TUI curses) pour la gestion de photos et vidé
 |--------|--------|-------------|
 | F1 | Sauvegarde Android | Transfert sans fil depuis un téléphone via KDE Connect |
 | F2 | Détection de doublons | Suppression de doublons par hash MD5 et empreinte visuelle |
-| F3 | Tri par date | Classement automatique des photos par année via EXIF |
+| F3 | Tri par date | Classement des photos/vidéos par année avec destinations séparées |
 | F4 | Renommage en lot | 9 modes de renommage avec prévisualisation et annulation |
+| F5 | Conversion de médias | Conversion d'images (JPG/PNG/WebP) et de vidéos (MP4/WebM) |
 | F6 | Changelog | Historique des versions |
 
 ### F1 — Sauvegarde Android via KDE Connect
@@ -17,9 +18,10 @@ Application en ligne de commande (TUI curses) pour la gestion de photos et vidé
 - Détecte automatiquement les appareils KDE Connect accessibles
 - Monte le système de fichiers Android via SFTP (D-Bus / qdbus6)
 - Trouve automatiquement le dossier `DCIM/Camera`
+- Choix du type de média : Photos uniquement, Vidéos uniquement, ou les deux
 - Comparaison par **contenu** (hash MD5 partiel + taille) pour éviter les doublons
 - Cache d'indexation persistant : pas de re-hachage si le dossier n'a pas changé
-- Barre de progression pendant le transfert et l'indexation
+- Barre de progression fluide pendant le transfert et l'indexation
 
 ### F2 — Détection de doublons
 
@@ -31,17 +33,33 @@ Application en ligne de commande (TUI curses) pour la gestion de photos et vidé
 ### F3 — Tri par date
 
 - Extraction de la date depuis l'EXIF, le nom de fichier ou la date de modification
+- **Destinations séparées** : un dossier pour les photos, un pour les vidéos
 - Création automatique de sous-dossiers `<destination>/<année>/`
 - Mode copie ou déplacement au choix
 - Fichiers sans date isolés dans un dossier `Erreur_tri/`
 
 ### F4 — Renommage en lot
 
-9 modes disponibles : dates prédéfinies IMG, préfixe/suffixe, rechercher/remplacer (regex), casse, numérotation, extension, suppression de caractères, insertion, EXIF DateTimeOriginal.
+9 modes disponibles : dates prédéfinies IMG/VID, préfixe/suffixe, rechercher/remplacer (regex), casse, numérotation, extension, suppression de caractères, insertion, EXIF DateTimeOriginal.
 
+- Préfixe **VID_** automatique pour les vidéos en mode prédéfini (IMG_ pour les images)
 - Prévisualisation avant application
 - Option récursive (sous-dossiers)
 - Journal d'annulation par dossier
+
+### F5 — Conversion de médias
+
+**Images** (via Pillow) :
+- Formats source : JPG, PNG, GIF, BMP, WebP, HEIC/HEIF*, TIFF
+- Formats cible : JPG (qualité 95), PNG (sans perte), WebP (qualité 90)
+
+**Vidéos** (via ffmpeg) :
+- Formats source : MP4, MOV, AVI, MKV, 3GP, M4V, WMV, FLV, WebM
+- Formats cible : MP4 H.264 (compatibilité maximale), MP4 H.265 (compression optimale), WebM VP9
+
+Sélection des fichiers avec cases à cocher, prévisualisation avant/après, option de suppression des originaux après conversion.
+
+*HEIC/HEIF requiert `pillow-heif` (`pip install pillow-heif`).
 
 ## Installation
 
@@ -78,8 +96,10 @@ pyinstaller casper-pictures-saver.spec --clean
 - Linux avec KDE Plasma 6 (pour F1)
 - `kdeconnect-cli` et `qdbus6` installés (pour F1)
 - KDE Connect configuré et apparié sur le téléphone Android (pour F1)
-- [Pillow](https://python-pillow.org/) pour la lecture EXIF (F3, F4) — optionnel
-- [imagehash](https://github.com/JohannesBuchner/imagehash) pour la détection visuelle de doublons (F2) — optionnel
+- [Pillow](https://python-pillow.org/) pour la lecture EXIF (F3, F4) et la conversion d'images (F5)
+- [imagehash](https://github.com/JohannesBuchner/imagehash) pour la détection visuelle de doublons (F2)
+- [ffmpeg](https://ffmpeg.org/) pour la conversion vidéo (F5) — `sudo pacman -S ffmpeg` ou `sudo apt install ffmpeg`
+- [pillow-heif](https://github.com/bigcat88/pillow_heif) pour la conversion HEIC/HEIF (F5, optionnel)
 
 ## Intégration bureau (KDE)
 

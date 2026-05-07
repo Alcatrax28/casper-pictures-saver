@@ -244,7 +244,7 @@ def _index_existing(compare_dir, stdscr, colors, media_ext=None):
             fname = "…" + fname[-(w - 5):]
 
         try:
-            stdscr.clear()
+            stdscr.erase()
             hh = _header.draw_sub_header(stdscr, colors, TITLE)
             _header.draw_footer(stdscr, colors)
             mid = hh + (h - 1 - hh) // 2
@@ -288,7 +288,7 @@ def _transfer(stdscr, colors, src, dest, existing, media_ext=None):
             fname = "…" + fname[-(w - 5):]
 
         try:
-            stdscr.clear()
+            stdscr.erase()
             hh = _header.draw_sub_header(stdscr, colors, TITLE)
             _header.draw_footer(stdscr, colors)
             mid = hh + (h - 1 - hh) // 2

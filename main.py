@@ -5,16 +5,17 @@ from version import APP_NAME, __version__
 MENU_ITEMS = [
     ("F1", "Sauvegarde Android via KDE Connect"),   # 0  col gauche  ligne 0
     ("F2", "Détection de doublons d'images"),        # 1  col gauche  ligne 1
-    ("F3", "Tri de photos via métadonnées"),         # 2  col droite  ligne 1
+    ("F3", "Tri de photos via métadonnées"),         # 2  col gauche  ligne 2
     ("F4", "Renommage de fichiers en lot"),          # 3  col droite  ligne 0
-    ("F6", "Changelog"),                             # 4  bas gauche
-    ("F8", "Quitter"),                               # 5  bas droite
+    ("F5", "Conversion d'images et de vidéos"),      # 4  col droite  ligne 1
+    ("F6", "Changelog"),                             # 5  bas gauche
+    ("F8", "Quitter"),                               # 6  bas droite
 ]
 
-FKEY_TO_IDX = {1: 0, 2: 1, 3: 2, 4: 3, 6: 4, 8: 5}
+FKEY_TO_IDX = {1: 0, 2: 1, 3: 2, 4: 3, 5: 4, 6: 5, 8: 6}
 
-# Correspondances ←→ : (gauche, droite)
-LR_PAIRS = [(0, 3), (1, 2), (4, 5)]
+# Correspondances ←→ : (gauche, droite) — F3 (idx 2) n'a pas de colonne droite
+LR_PAIRS = [(0, 3), (1, 4), (5, 6)]
 
 
 def setup_colors():
@@ -40,6 +41,8 @@ def setup_colors():
         "sel_key":  curses.color_pair(8) | curses.A_BOLD,
         "quit":     curses.color_pair(6),
         "quit_key": curses.color_pair(6) | curses.A_BOLD,
+        "dim_key":  curses.color_pair(3),
+        "dim":      curses.color_pair(3),
         "help":     curses.color_pair(7),
         "footer":   curses.color_pair(9) | curses.A_BOLD,
     }
@@ -90,7 +93,7 @@ def draw_header(stdscr, colors):
     return row
 
 
-def draw_item_box(stdscr, row, col, fkey, label, selected, is_quit, colors, w):
+def draw_item_box(stdscr, row, col, fkey, label, selected, is_quit, colors, w, is_dim=False):
     """Encadré ┌──────┐ / │  Fx  │  label / └──────┘"""
     if selected:
         box_attr  = colors["sel_key"]
@@ -98,6 +101,9 @@ def draw_item_box(stdscr, row, col, fkey, label, selected, is_quit, colors, w):
     elif is_quit:
         box_attr  = colors["quit_key"]
         text_attr = colors["quit"]
+    elif is_dim:
+        box_attr  = colors["dim_key"]
+        text_attr = colors["dim"]
     else:
         box_attr  = colors["key"]
         text_attr = colors["normal"]
@@ -134,8 +140,8 @@ def draw_menu(stdscr, selected_idx, colors):
     half_w    = w // 2
     item_h    = 4   # 3 lignes encadré + 1 ligne vide
 
-    # ── Grille principale : F1/F4  F2/F3 ─────────────────────────────────────
-    grid = [(0, 3), (1, 2)]
+    # ── Grille principale : F1/F4  F2/F5  F3/— ───────────────────────────────
+    grid = [(0, 3), (1, 4), (2, None)]
 
     for row_num, (li, ri) in enumerate(grid):
         base_row = start_row + row_num * item_h
@@ -144,9 +150,10 @@ def draw_menu(stdscr, selected_idx, colors):
         draw_item_box(stdscr, base_row, 4, fkey, label,
                       selected_idx == li, False, colors, w)
 
-        fkey, label = MENU_ITEMS[ri]
-        draw_item_box(stdscr, base_row, half_w + 4, fkey, label,
-                      selected_idx == ri, False, colors, w)
+        if ri is not None:
+            fkey, label = MENU_ITEMS[ri]
+            draw_item_box(stdscr, base_row, half_w + 4, fkey, label,
+                          selected_idx == ri, False, colors, w)
 
     # ── Ligne de séparation ───────────────────────────────────────────────────
     sep_row = start_row + len(grid) * item_h
@@ -158,12 +165,12 @@ def draw_menu(stdscr, selected_idx, colors):
 
     # ── Bas : F6 Changelog (gauche)  |  F8 Quitter (droite) ──────────────────
     bot_row = sep_row + 1
-    fkey6, label6 = MENU_ITEMS[4]
-    fkey8, label8 = MENU_ITEMS[5]
+    fkey6, label6 = MENU_ITEMS[5]
+    fkey8, label8 = MENU_ITEMS[6]
     draw_item_box(stdscr, bot_row, 4,          fkey6, label6,
-                  selected_idx == 4, False, colors, w)
+                  selected_idx == 5, False, colors, w, is_dim=True)
     draw_item_box(stdscr, bot_row, half_w + 4, fkey8, label8,
-                  selected_idx == 5, True,  colors, w)
+                  selected_idx == 6, True,  colors, w)
 
     # ── Barre d'aide ─────────────────────────────────────────────────────────
     help_text = "  ↑ ↓  Naviguer    ← →  Changer colonne    F8  Quitter  "
@@ -197,6 +204,9 @@ def _launch(stdscr, colors, idx):
         import f4_rename
         f4_rename.run(stdscr, colors)
     elif idx == 4:
+        import f5_convert
+        f5_convert.run(stdscr, colors)
+    elif idx == 5:
         import f6_changelog
         f6_changelog.run(stdscr, colors)
 
@@ -237,6 +247,9 @@ def main(stdscr):
             _launch(stdscr, colors, selected_idx)
         elif key == curses.KEY_F4:
             selected_idx = FKEY_TO_IDX[4]
+            _launch(stdscr, colors, selected_idx)
+        elif key == curses.KEY_F5:
+            selected_idx = FKEY_TO_IDX[5]
             _launch(stdscr, colors, selected_idx)
         elif key == curses.KEY_F6:
             selected_idx = FKEY_TO_IDX[6]

@@ -3,12 +3,13 @@ F3 — Tri de photos et vidéos par année via métadonnées.
 
 Flux :
   1. Sélection du dossier source
-  2. Sélection du dossier destination
-  3. Copier ou déplacer ?
-  4. Analyse des métadonnées (EXIF → nom de fichier → mtime)
-  5. Transfert vers <destination>/<année>/
+  2. Sélection du dossier destination (photos)
+  3. Sélection du dossier destination (vidéos)
+  4. Copier ou déplacer ?
+  5. Analyse des métadonnées (EXIF → nom de fichier → mtime)
+  6. Transfert vers <destination_photos|vidéos>/<année>/
      Fichiers sans date détectable → déplacés dans <source>/Erreur_tri/
-  6. Résumé
+  7. Résumé
 """
 
 import curses
@@ -20,11 +21,9 @@ from pathlib import Path
 import folder_browser
 import header as _header
 
-MEDIA_EXT = {
-    '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.heic', '.heif',
-    '.mp4', '.mov', '.avi', '.mkv', '.3gp', '.m4v', '.wmv',
-}
 IMAGE_EXT = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.heic', '.heif'}
+VIDEO_EXT = {'.mp4', '.mov', '.avi', '.mkv', '.3gp', '.m4v', '.wmv'}
+MEDIA_EXT = IMAGE_EXT | VIDEO_EXT
 
 TITLE         = "Tri de photos par année"
 ERROR_DIR     = "Erreur_tri"
@@ -44,21 +43,30 @@ def run(stdscr, colors):
     if src is None:
         return
 
-    # 2. Dossier destination ──────────────────────────────────────────────────
-    dest = folder_browser.browse(
+    # 2. Dossier destination photos ───────────────────────────────────────────
+    dest_photos = folder_browser.browse(
         stdscr, colors,
-        title="Dossier destination",
+        title="Dossier destination — Photos",
         start=src.parent,
     )
-    if dest is None:
+    if dest_photos is None:
         return
 
-    # 3. Copier ou déplacer ? ─────────────────────────────────────────────────
+    # 3. Dossier destination vidéos ───────────────────────────────────────────
+    dest_videos = folder_browser.browse(
+        stdscr, colors,
+        title="Dossier destination — Vidéos",
+        start=src.parent,
+    )
+    if dest_videos is None:
+        return
+
+    # 4. Copier ou déplacer ? ─────────────────────────────────────────────────
     move = _ask_copy_move(stdscr, colors)
     if move is None:
         return
 
-    # 4. Collecte des fichiers ────────────────────────────────────────────────
+    # 5. Collecte des fichiers ────────────────────────────────────────────────
     _msg(stdscr, colors, ["Collecte des fichiers médias…"])
     files = sorted(
         p for p in Path(src).rglob('*')
@@ -68,13 +76,14 @@ def run(stdscr, colors):
         _wait(stdscr, colors, ["Aucun fichier média trouvé dans ce dossier."])
         return
 
-    # 5. Transfert ────────────────────────────────────────────────────────────
-    action      = "Déplacement" if move else "Copie"
-    copied      = 0
-    errors      = 0
-    no_date     = 0
-    year_counts = {}   # année → nombre de fichiers traités
-    error_dir   = Path(src) / ERROR_DIR
+    # 6. Transfert ────────────────────────────────────────────────────────────
+    action           = "Déplacement" if move else "Copie"
+    copied_photos    = 0
+    copied_videos    = 0
+    errors           = 0
+    no_date          = 0
+    year_counts      = {}   # année → {'photos': n, 'videos': n}
+    error_dir        = Path(src) / ERROR_DIR
 
     total = len(files)
     for i, src_file in enumerate(files):
@@ -84,7 +93,6 @@ def run(stdscr, colors):
         year = _get_year(src_file)
 
         if year is None:
-            # Aucune date trouvée → déplacer dans Erreur_tri à la source
             try:
                 error_dir.mkdir(exist_ok=True)
                 dst = error_dir / src_file.name
@@ -98,7 +106,9 @@ def run(stdscr, colors):
                 errors += 1
             continue
 
-        dst_dir = Path(dest) / str(year)
+        is_video = src_file.suffix.lower() in VIDEO_EXT
+        base_dest = Path(dest_videos) if is_video else Path(dest_photos)
+        dst_dir = base_dest / str(year)
         try:
             dst_dir.mkdir(parents=True, exist_ok=True)
         except OSError:
@@ -116,14 +126,21 @@ def run(stdscr, colors):
                 shutil.move(str(src_file), dst)
             else:
                 shutil.copy2(src_file, dst)
-            copied += 1
-            year_counts[str(year)] = year_counts.get(str(year), 0) + 1
+            if is_video:
+                copied_videos += 1
+            else:
+                copied_photos += 1
+            counts = year_counts.setdefault(str(year), {'photos': 0, 'videos': 0})
+            counts['videos' if is_video else 'photos'] += 1
         except Exception:
             errors += 1
 
-    # 6. Résumé ───────────────────────────────────────────────────────────────
+    # 7. Résumé ───────────────────────────────────────────────────────────────
     verb = "déplacé(s)" if move else "copié(s)"
-    lines = [f"  ✔  {copied} fichier(s) {verb}"]
+    lines = [
+        f"  ✔  {copied_photos} photo(s) {verb}",
+        f"  ✔  {copied_videos} vidéo(s) {verb}",
+    ]
     if no_date:
         lines.append(f"  ?  {no_date} fichier(s) sans date → {ERROR_DIR}/")
     if errors:
@@ -133,7 +150,14 @@ def run(stdscr, colors):
         lines.append("")
         lines.append("  Répartition par année :")
         for year_str in sorted(year_counts):
-            lines.append(f"    {year_str} : {year_counts[year_str]} fichier(s)")
+            p = year_counts[year_str]['photos']
+            v = year_counts[year_str]['videos']
+            parts = []
+            if p:
+                parts.append(f"{p} photo(s)")
+            if v:
+                parts.append(f"{v} vidéo(s)")
+            lines.append(f"    {year_str} : {', '.join(parts)}")
 
     lines += ["", "  Appuyez sur une touche pour revenir au menu…"]
     _box(stdscr, colors, lines, title="Terminé")
@@ -229,7 +253,7 @@ def _progress(stdscr, colors, i, total, filename, label):
     done  = int(bar_w * (i + 1) / total) if total else bar_w
     bar   = f"[{'█' * done}{'░' * (bar_w - done)}]  {(i+1)*100//total if total else 100}%"
     fname = filename if len(filename) <= w - 4 else "…" + filename[-(w - 5):]
-    stdscr.clear()
+    stdscr.erase()
     hh  = _header.draw_sub_header(stdscr, colors, TITLE)
     _header.draw_footer(stdscr, colors)
     mid = hh + (h - 1 - hh) // 2

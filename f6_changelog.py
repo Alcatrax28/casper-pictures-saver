@@ -5,6 +5,29 @@ import header as _header
 TITLE = "Changelog"
 
 ENTRIES = [
+    ("v1.2.0", "2026-05-07  —  Conversion de médias, refonte menu, correctifs", [
+        "[F5]  Conversion d'images et de vidéos  (nouveau module)",
+        "      Images -> JPG, PNG, WebP via Pillow (HEIC/HEIF avec pillow-heif).",
+        "      Videos -> MP4 H.264, MP4 H.265, WebM VP9 via ffmpeg.",
+        "      Selection des fichiers, previsualisation avant/apres, option de",
+        "      suppression des originaux. Detection des dependances au lancement.",
+        "",
+        "[F3]  Tri de photos et videos par annee",
+        "      Destinations separees : un dossier pour les photos, un pour les videos.",
+        "      Le resume distingue photos et videos par annee.",
+        "",
+        "[F4]  Renommage -- mode predefini IMG/VID",
+        "      Prefixe VID_ automatique pour les fichiers video (.mp4, .mov, .avi...).",
+        "      IMG_ pour les images. La regex accepte aussi les entrees prefixees VID.",
+        "",
+        "[Menu principal]",
+        "      Nouvelle disposition : F1/F2/F3 colonne gauche, F4/F5 colonne droite.",
+        "      F6 Changelog affiche en couleur attenuee (moins en evidence).",
+        "",
+        "[Correctif]  Clignotement de la console pendant les barres de progression",
+        "      Remplacement de stdscr.clear() par stdscr.erase() dans toutes les",
+        "      boucles de progression (F1 indexation, F1 transfert, F3 tri).",
+    ]),
     ("v1.1.0", "2026-05-07  —  Sélection du type de média à télécharger", [
         "[F1]  Sauvegarde Android via KDE Connect",
         "      Nouvelle étape : choix du type de média avant le transfert.",

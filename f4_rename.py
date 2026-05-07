@@ -14,8 +14,10 @@ import header as _header
 TITLE     = "Renommage de fichiers en lot"
 UNDO_FILE = ".f4_undo.json"
 
+VIDEO_EXT = {'.mp4', '.mov', '.avi', '.mkv', '.3gp', '.m4v', '.wmv'}
+
 MODES = [
-    ("Prédéfini IMG dates",    "IMGAAAAmmDDHHMMSS (séparateurs optionnels)  →  IMG_AAAAmmDD_HHMMSS"),
+    ("Prédéfini IMG/VID dates", "IMG/VIDAAAAmmDDHHMMSS (séparateurs optionnels)  →  IMG_AAAAmmDD_HHMMSS  (VID_ pour vidéos)"),
     ("Préfixe / Suffixe",      "Ajouter du texte avant / après le nom"),
     ("Rechercher / Remplacer", "Texte simple ou expression régulière"),
     ("Casse",                  "MAJUSCULES, minuscules, Titre, Phrase"),
@@ -238,7 +240,7 @@ def _dispatch(stdscr, colors, folder, files, mode):
 # ─── Transformation prédéfinie ────────────────────────────────────────────────
 
 _DATE_RE = re.compile(
-    r'^IMG[_-]?(\d{4})[_-]?(\d{2})[_-]?(\d{2})[_-]?(\d{2})[_-]?(\d{2})[_-]?(\d{2})(.*?)$',
+    r'^(?:IMG|VID)[_-]?(\d{4})[_-]?(\d{2})[_-]?(\d{2})[_-]?(\d{2})[_-]?(\d{2})[_-]?(\d{2})(.*?)$',
     re.IGNORECASE,
 )
 
@@ -247,7 +249,8 @@ def _transform_predefined(path, idx):
     if not m:
         return None
     Y, mo, D, H, Mi, S, rest = m.groups()
-    new_stem = f"IMG_{Y}{mo}{D}_{H}{Mi}{S}{rest}"
+    prefix = "VID" if path.suffix.lower() in VIDEO_EXT else "IMG"
+    new_stem = f"{prefix}_{Y}{mo}{D}_{H}{Mi}{S}{rest}"
     new_name = new_stem + path.suffix
     return None if new_name == path.name else new_name
 
