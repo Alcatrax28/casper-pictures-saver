@@ -18,6 +18,7 @@ from pathlib import Path
 
 import folder_browser
 import header as _header
+import progress_anim
 
 TITLE = "Conversion d'images et de vidéos"
 
@@ -305,33 +306,38 @@ def _apply(stdscr, colors, files, dst_ext, codec, keep):
     label    = ("Conversion vidéo… (peut prendre plusieurs minutes)"
                 if is_video else "Conversion en cours…")
 
-    for i, src in enumerate(files):
-        _progress(stdscr, colors, i, total, src.name, label)
+    with progress_anim.ProgressAnim(stdscr, colors, TITLE, label, total) as anim:
+        for i, src in enumerate(files):
+            anim.update(i, src.name)
 
-        # Destination : évite d'écraser la source quand ext identique (re-encodage vidéo)
-        base_stem = f"{src.stem}_conv" if src.suffix.lower() == dst_ext else src.stem
-        dst = src.parent / f"{base_stem}{dst_ext}"
-        counter = 1
-        while dst.exists():
-            dst = src.parent / f"{base_stem}_{counter}{dst_ext}"
-            counter += 1
+            # Destination : évite d'écraser la source quand ext identique (re-encodage vidéo)
+            base_stem = f"{src.stem}_conv" if src.suffix.lower() == dst_ext else src.stem
+            dst = src.parent / f"{base_stem}{dst_ext}"
+            counter = 1
+            while dst.exists():
+                dst = src.parent / f"{base_stem}_{counter}{dst_ext}"
+                counter += 1
 
-        if _convert_one(src, dst, codec):
-            ok += 1
-            if not keep:
-                try:
-                    src.unlink()
-                except OSError:
-                    pass
-        else:
-            errors += 1
-            if dst.exists():
-                try:
-                    dst.unlink()
-                except OSError:
-                    pass
+            if _convert_one(src, dst, codec):
+                ok += 1
+                if not keep:
+                    try:
+                        src.unlink()
+                    except OSError:
+                        pass
+            else:
+                errors += 1
+                if dst.exists():
+                    try:
+                        dst.unlink()
+                    except OSError:
+                        pass
+            if anim.cancelled:
+                break
 
     lines = [f"  ✔  {ok} fichier(s) converti(s)"]
+    if anim.cancelled:
+        lines.append(f"  ⚠  Annulé — {ok + errors}/{total} traité(s)")
     if not keep and ok:
         lines.append(f"  —  {ok} original(aux) supprimé(s)")
     if errors:
@@ -421,22 +427,6 @@ def _check_ffmpeg(stdscr, colors):
 
 
 # ─── UI helpers ───────────────────────────────────────────────────────────────
-
-def _progress(stdscr, colors, i, total, filename, label="Conversion en cours…"):
-    h, w  = stdscr.getmaxyx()
-    bar_w = min(52, w - 12)
-    done  = int(bar_w * (i + 1) / total) if total else bar_w
-    bar   = f"[{'█' * done}{'░' * (bar_w - done)}]  {(i+1)*100//total if total else 100}%"
-    fname = filename if len(filename) <= w - 4 else "…" + filename[-(w - 5):]
-    stdscr.erase()
-    hh  = _header.draw_sub_header(stdscr, colors, TITLE)
-    _header.draw_footer(stdscr, colors)
-    mid = hh + (h - 1 - hh) // 2
-    _s(stdscr, mid - 1, 2, label,       colors['name'])
-    _s(stdscr, mid,     2, bar[:w - 3], colors['key'])
-    _s(stdscr, mid + 1, 2, fname,       colors['normal'])
-    stdscr.refresh()
-
 
 def _ask_yn(stdscr, colors, question):
     lines = [question, "", "  [O]  Oui      [N]  Non"]

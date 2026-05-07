@@ -4,8 +4,8 @@ from version import APP_NAME, __version__
 
 MENU_ITEMS = [
     ("F1", "Sauvegarde Android via KDE Connect"),   # 0  col gauche  ligne 0
-    ("F2", "Détection de doublons d'images"),        # 1  col gauche  ligne 1
-    ("F3", "Tri de photos via métadonnées"),         # 2  col gauche  ligne 2
+    ("F2", "Détection de doublons de médias"),        # 1  col gauche  ligne 1
+    ("F3", "Tri de médias via métadonnées"),         # 2  col gauche  ligne 2
     ("F4", "Renommage de fichiers en lot"),          # 3  col droite  ligne 0
     ("F5", "Conversion d'images et de vidéos"),      # 4  col droite  ligne 1
     ("F6", "Changelog"),                             # 5  bas gauche

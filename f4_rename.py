@@ -10,6 +10,7 @@ from pathlib import Path
 
 import folder_browser
 import header as _header
+import progress_anim
 
 TITLE     = "Renommage de fichiers en lot"
 UNDO_FILE = ".f4_undo.json"
@@ -536,9 +537,10 @@ def _resolve_conflict(folder, new_name, claimed):
 
 def _preview(stdscr, colors, files, transform):
     pairs = []
-    for i, p in enumerate(files):
-        _progress(stdscr, colors, i, len(files), p.name, "Chargement de l'aperçu…")
-        pairs.append((p.name, transform(p, i)))
+    with progress_anim.ProgressAnim(stdscr, colors, TITLE, "Chargement de l'aperçu…", len(files)) as anim:
+        for i, p in enumerate(files):
+            anim.update(i, p.name)
+            pairs.append((p.name, transform(p, i)))
 
     # Résoudre les conflits en simulant la séquence de renommage
     folder  = files[0].parent if files else Path('.')
@@ -618,22 +620,25 @@ def _apply(stdscr, colors, folder, files, transform):
     total = len(files)
 
     claimed = set()
-    for idx, path in enumerate(files):
-        _progress(stdscr, colors, idx, total, path.name)
-        new_name = transform(path, idx)
-        if new_name is None:
-            skipped += 1
-            continue
-        new_name = _resolve_conflict(path.parent, new_name, claimed)
-        claimed.add(new_name)
-        new_path = path.parent / new_name
-        try:
-            path.rename(new_path)
-            rel_new = str(new_path.relative_to(folder))
-            undo_log[rel_new] = path.name
-            ok += 1
-        except OSError:
-            errors += 1
+    with progress_anim.ProgressAnim(stdscr, colors, TITLE, "Renommage en cours…", total) as anim:
+        for idx, path in enumerate(files):
+            anim.update(idx, path.name)
+            new_name = transform(path, idx)
+            if new_name is None:
+                skipped += 1
+            else:
+                new_name = _resolve_conflict(path.parent, new_name, claimed)
+                claimed.add(new_name)
+                new_path = path.parent / new_name
+                try:
+                    path.rename(new_path)
+                    rel_new = str(new_path.relative_to(folder))
+                    undo_log[rel_new] = path.name
+                    ok += 1
+                except OSError:
+                    errors += 1
+            if anim.cancelled:
+                break
 
     if undo_log:
         undo_path = folder / UNDO_FILE
@@ -650,6 +655,8 @@ def _apply(stdscr, colors, folder, files, transform):
             pass
 
     lines = [f"  ✔  {ok} fichier(s) renommé(s)", f"  —  {skipped} inchangé(s)"]
+    if anim.cancelled:
+        lines.append(f"  ⚠  Annulé — {ok + skipped}/{total} traité(s)")
     if errors:
         lines.append(f"  ✗  {errors} erreur(s) / conflit(s) ignoré(s)")
     lines += ["", "  Appuyez sur une touche pour continuer…"]
@@ -816,22 +823,6 @@ def _choice(stdscr, colors, title, options):
             return sel
         elif key == 27:
             return None
-
-
-def _progress(stdscr, colors, i, total, filename, label="Renommage en cours…"):
-    h, w  = stdscr.getmaxyx()
-    bar_w = min(52, w - 12)
-    done  = int(bar_w * (i + 1) / total) if total else bar_w
-    bar   = f"[{'█' * done}{'░' * (bar_w - done)}]  {(i+1)*100//total if total else 100}%"
-    fname = filename if len(filename) <= w - 4 else "…" + filename[-(w - 5):]
-    stdscr.clear()
-    hh  = _header.draw_sub_header(stdscr, colors, TITLE)
-    _header.draw_footer(stdscr, colors)
-    mid = hh + (h - 1 - hh) // 2
-    _s(stdscr, mid - 1, 2, label,       colors['name'])
-    _s(stdscr, mid,     2, bar[:w - 3], colors['key'])
-    _s(stdscr, mid + 1, 2, fname,       colors['normal'])
-    stdscr.refresh()
 
 
 def _box(stdscr, colors, lines, title=""):

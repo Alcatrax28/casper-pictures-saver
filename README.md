@@ -7,8 +7,8 @@ Application en ligne de commande (TUI curses) pour la gestion de photos et vidé
 | Touche | Module | Description |
 |--------|--------|-------------|
 | F1 | Sauvegarde Android | Transfert sans fil depuis un téléphone via KDE Connect |
-| F2 | Détection de doublons | Suppression de doublons par hash MD5 et empreinte visuelle |
-| F3 | Tri par date | Classement des photos/vidéos par année avec destinations séparées |
+| F2 | Détection de doublons de médias | Suppression de doublons par hash MD5 et empreinte visuelle |
+| F3 | Tri de médias par date | Classement des photos/vidéos par année avec destinations séparées |
 | F4 | Renommage en lot | 9 modes de renommage avec prévisualisation et annulation |
 | F5 | Conversion de médias | Conversion d'images (JPG/PNG/WebP) et de vidéos (MP4/WebM) |
 | F6 | Changelog | Historique des versions |
@@ -21,22 +21,25 @@ Application en ligne de commande (TUI curses) pour la gestion de photos et vidé
 - Choix du type de média : Photos uniquement, Vidéos uniquement, ou les deux
 - Comparaison par **contenu** (hash MD5 partiel + taille) pour éviter les doublons
 - Cache d'indexation persistant : pas de re-hachage si le dossier n'a pas changé
-- Barre de progression fluide pendant le transfert et l'indexation
+- Animation de progression (chat ASCII) dans un thread dédié — reste fluide même sur des fichiers volumineux
+- Annulation propre avec **Échap** : le fichier en cours se termine, puis l'opération s'arrête
 
-### F2 — Détection de doublons
+### F2 — Détection de doublons de médias
 
 - **Passe 1** : hash MD5 exact (images + vidéos)
 - **Passe 2** : empreinte perceptuelle pHash (images uniquement, distance de Hamming ≤ 6)
 - Règle de conservation automatique : fichier le plus grand, nom le plus court, plus ancien
 - Revue manuelle avec cases à cocher avant toute suppression
+- Annulation propre avec **Échap** pendant la suppression
 
-### F3 — Tri par date
+### F3 — Tri de médias par date
 
 - Extraction de la date depuis l'EXIF, le nom de fichier ou la date de modification
 - **Destinations séparées** : un dossier pour les photos, un pour les vidéos
 - Création automatique de sous-dossiers `<destination>/<année>/`
 - Mode copie ou déplacement au choix
 - Fichiers sans date isolés dans un dossier `Erreur_tri/`
+- Annulation propre avec **Échap** pendant le tri
 
 ### F4 — Renommage en lot
 
@@ -46,6 +49,7 @@ Application en ligne de commande (TUI curses) pour la gestion de photos et vidé
 - Prévisualisation avant application
 - Option récursive (sous-dossiers)
 - Journal d'annulation par dossier
+- Annulation propre avec **Échap** pendant le renommage
 
 ### F5 — Conversion de médias
 
@@ -57,7 +61,7 @@ Application en ligne de commande (TUI curses) pour la gestion de photos et vidé
 - Formats source : MP4, MOV, AVI, MKV, 3GP, M4V, WMV, FLV, WebM
 - Formats cible : MP4 H.264 (compatibilité maximale), MP4 H.265 (compression optimale), WebM VP9
 
-Sélection des fichiers avec cases à cocher, prévisualisation avant/après, option de suppression des originaux après conversion.
+Sélection des fichiers avec cases à cocher, prévisualisation avant/après, option de suppression des originaux après conversion. Annulation propre avec **Échap** pendant la conversion.
 
 *HEIC/HEIF requiert `pillow-heif` (`pip install pillow-heif`).
 

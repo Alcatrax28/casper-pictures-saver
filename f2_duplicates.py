@@ -21,6 +21,7 @@ from pathlib import Path
 
 import folder_browser
 import header as _header
+import progress_anim
 
 MEDIA_EXT    = {
     '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.heic', '.heif',
@@ -70,13 +71,15 @@ def run(stdscr, colors):
     freed = sum(_fsize(f) for f in to_delete)
 
     # 5. Suppression
-    deleted, errors = _delete(stdscr, colors, to_delete)
+    deleted, errors, cancelled = _delete(stdscr, colors, to_delete)
 
     # 6. Résumé
     summary = [
         f"  ✔  {deleted} fichier(s) supprimé(s)",
         f"  Espace libéré : {_fmt_size(freed)}",
     ]
+    if cancelled:
+        summary.append(f"  ⚠  Annulé — {deleted}/{len(to_delete)} traité(s)")
     if errors:
         summary.insert(1, f"  ✗  {errors} erreur(s)")
     _wait(stdscr, colors, summary)
@@ -89,11 +92,12 @@ def _find_duplicates(files, stdscr, colors):
 
     # Passe 1 : MD5
     md5_map = {}
-    for i, f in enumerate(files):
-        _progress(stdscr, colors, i, total, f.name, "Passe 1/2 — Empreintes MD5…")
-        d = _md5(f)
-        if d:
-            md5_map.setdefault(d, []).append(f)
+    with progress_anim.ProgressAnim(stdscr, colors, TITLE, "Passe 1/2 — Empreintes MD5…", total) as anim:
+        for i, f in enumerate(files):
+            anim.update(i, f.name)
+            d = _md5(f)
+            if d:
+                md5_map.setdefault(d, []).append(f)
 
     exact_groups = [g for g in md5_map.values() if len(g) > 1]
     matched      = {f for g in exact_groups for f in g}
@@ -126,13 +130,13 @@ def _phash_groups(images, stdscr, colors):
 
     total   = len(images)
     hashes  = []
-    for i, f in enumerate(images):
-        _progress(stdscr, colors, i, total, f.name,
-                  "Passe 2/2 — Empreintes perceptuelles (images)…")
-        try:
-            hashes.append((f, imagehash.phash(Image.open(f))))
-        except Exception:
-            pass
+    with progress_anim.ProgressAnim(stdscr, colors, TITLE, "Passe 2/2 — Empreintes perceptuelles…", total) as anim:
+        for i, f in enumerate(images):
+            anim.update(i, f.name)
+            try:
+                hashes.append((f, imagehash.phash(Image.open(f))))
+            except Exception:
+                pass
 
     # Groupement par proximité (distance de Hamming ≤ PHASH_THRESH)
     used   = [False] * len(hashes)
@@ -342,35 +346,22 @@ def _delete(stdscr, colors, to_delete):
     total   = len(to_delete)
     deleted = 0
     errors  = 0
-    for i, path in enumerate(to_delete):
-        _progress(stdscr, colors, i, total, path.name, "Suppression en cours…")
-        try:
-            path.unlink()
-            deleted += 1
-        except OSError:
-            errors += 1
-    return deleted, errors
+    with progress_anim.ProgressAnim(stdscr, colors, TITLE, "Suppression en cours…", total) as anim:
+        for i, path in enumerate(to_delete):
+            anim.update(i, path.name)
+            try:
+                path.unlink()
+                deleted += 1
+            except OSError:
+                errors += 1
+            if anim.cancelled:
+                break
+    return deleted, errors, anim.cancelled
 
 
 # ─── UI helpers ───────────────────────────────────────────────────────────────
 
 TITLE = "Détection de doublons"
-
-
-def _progress(stdscr, colors, i, total, filename, label):
-    h, w  = stdscr.getmaxyx()
-    bar_w = min(52, w - 12)
-    done  = int(bar_w * (i + 1) / total) if total else bar_w
-    bar   = f"[{'█' * done}{'░' * (bar_w - done)}]  {(i+1)*100//total if total else 100}%"
-    fname = filename if len(filename) <= w - 4 else "…" + filename[-(w - 5):]
-    stdscr.clear()
-    hh  = _header.draw_sub_header(stdscr, colors, TITLE)
-    _header.draw_footer(stdscr, colors)
-    mid = hh + (h - 1 - hh) // 2
-    _s(stdscr, mid - 1, 2, label,       colors['name'])
-    _s(stdscr, mid,     2, bar[:w - 3], colors['key'])
-    _s(stdscr, mid + 1, 2, fname,       colors['normal'])
-    stdscr.refresh()
 
 
 def _msg(stdscr, colors, lines):

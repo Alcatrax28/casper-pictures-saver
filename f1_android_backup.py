@@ -23,6 +23,7 @@ from pathlib import Path
 import kdeconnect
 import folder_browser
 import header as _header
+import progress_anim
 
 
 PHOTO_EXT = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.heic', '.heif'}
@@ -113,13 +114,15 @@ def run(stdscr, colors):
 
         # 7. Transfert ────────────────────────────────────────────────────────
         existing = _index_existing(compare, stdscr, colors, media_ext)
-        copied, skipped, errors = _transfer(stdscr, colors, src, dest, existing, media_ext)
+        copied, skipped, errors, cancelled = _transfer(stdscr, colors, src, dest, existing, media_ext)
 
         # 8. Résumé ───────────────────────────────────────────────────────────
         lines = [
             f"  ✔  {copied} fichier(s) copié(s)",
             f"  ↷  {skipped} fichier(s) ignoré(s) (déjà présent(s))",
         ]
+        if cancelled:
+            lines.append(f"  ⚠  Annulé — {copied + skipped + errors} fichier(s) traité(s) avant arrêt")
         if errors:
             lines.append(f"  ✗  {errors} erreur(s)")
         lines += ["", "  Appuyez sur une touche pour revenir au menu…"]
@@ -233,31 +236,12 @@ def _index_existing(compare_dir, stdscr, colors, media_ext=None):
     # Cache absent ou périmé : hachage avec barre de progression
     total = len(all_files)
 
-    for i, (_, __, p) in enumerate(all_files):
-        h, w  = stdscr.getmaxyx()
-        bar_w  = min(50, w - 20)
-        filled = int(bar_w * (i + 1) / total) if total else bar_w
-        bar    = f"[{'█' * filled}{'░' * (bar_w - filled)}]"
-        pct    = f"  {i + 1}/{total}  {bar}  {(i + 1) * 100 // total if total else 100}%"
-        fname  = p.name
-        if len(fname) > w - 4:
-            fname = "…" + fname[-(w - 5):]
-
-        try:
-            stdscr.erase()
-            hh = _header.draw_sub_header(stdscr, colors, TITLE)
-            _header.draw_footer(stdscr, colors)
-            mid = hh + (h - 1 - hh) // 2
-            _s(stdscr, mid - 2, 2, "Indexation du dossier de comparaison…", colors['name'])
-            _s(stdscr, mid,     2, pct[:w - 3],                              colors['key'])
-            _s(stdscr, mid + 1, 2, fname,                                    colors['normal'])
-            stdscr.refresh()
-        except curses.error:
-            pass
-
-        sig = _file_signature(p)
-        if sig is not None:
-            sigs.add(sig)
+    with progress_anim.ProgressAnim(stdscr, colors, TITLE, "Indexation du dossier de comparaison…", total) as anim:
+        for i, (_, __, p) in enumerate(all_files):
+            anim.update(i, p.name)
+            sig = _file_signature(p)
+            if sig is not None:
+                sigs.add(sig)
 
     _save_cache(compare_dir, fingerprint, sigs)
     return sigs
@@ -276,51 +260,30 @@ def _transfer(stdscr, colors, src, dest, existing, media_ext=None):
     skipped = 0
     errors  = 0
 
-    for i, src_file in enumerate(files):
-        # Affichage de la progression
-        h, w = stdscr.getmaxyx()
-        bar_w    = min(50, w - 20)
-        filled   = int(bar_w * (i + 1) / total) if total else bar_w
-        bar      = f"[{'█' * filled}{'░' * (bar_w - filled)}]"
-        pct      = f"  {i + 1}/{total}  {bar}  {(i + 1) * 100 // total if total else 100}%"
-        fname    = src_file.name
-        if len(fname) > w - 4:
-            fname = "…" + fname[-(w - 5):]
+    with progress_anim.ProgressAnim(stdscr, colors, TITLE, "Transfert en cours…", total) as anim:
+        for i, src_file in enumerate(files):
+            anim.update(i, src_file.name)
 
-        try:
-            stdscr.erase()
-            hh = _header.draw_sub_header(stdscr, colors, TITLE)
-            _header.draw_footer(stdscr, colors)
-            mid = hh + (h - 1 - hh) // 2
-            _s(stdscr, mid - 2, 2, "Transfert en cours…", colors['name'])
-            _s(stdscr, mid,     2, pct[:w - 3],           colors['key'])
-            _s(stdscr, mid + 1, 2, fname,                 colors['normal'])
-            stdscr.refresh()
-        except curses.error:
-            pass
+            sig = _file_signature(src_file)
+            if sig is not None and sig in existing:
+                skipped += 1
+            else:
+                dst = Path(dest) / src_file.name
+                counter = 1
+                while dst.exists():
+                    dst = Path(dest) / f"{src_file.stem}_{counter}{src_file.suffix}"
+                    counter += 1
+                try:
+                    shutil.copy2(src_file, dst)
+                    if sig is not None:
+                        existing.add(sig)
+                    copied += 1
+                except Exception:
+                    errors += 1
+            if anim.cancelled:
+                break
 
-        # Doublon ?
-        sig = _file_signature(src_file)
-        if sig is not None and sig in existing:
-            skipped += 1
-            continue
-
-        # Destination (évite d'écraser si même nom, fichier différent)
-        dst = Path(dest) / src_file.name
-        counter = 1
-        while dst.exists():
-            dst = Path(dest) / f"{src_file.stem}_{counter}{src_file.suffix}"
-            counter += 1
-
-        try:
-            shutil.copy2(src_file, dst)
-            if sig is not None:
-                existing.add(sig)
-            copied += 1
-        except Exception:
-            errors += 1
-
-    return copied, skipped, errors
+    return copied, skipped, errors, anim.cancelled
 
 
 # ─── UI helpers ───────────────────────────────────────────────────────────────

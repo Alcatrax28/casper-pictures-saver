@@ -5,6 +5,21 @@ import header as _header
 TITLE = "Changelog"
 
 ENTRIES = [
+    ("v1.3.0", "2026-05-07  —  Animation, annulation propre, etiquettes medias", [
+        "[Toutes les barres de progression]  Chat ASCII anime",
+        "      Remplacement du spinner |/-\\ par un chat ASCII 4 frames.",
+        "      Animation dans un thread independant : tourne a 150 ms meme si",
+        "      le fichier en cours prend plusieurs minutes (copie, conversion...).",
+        "",
+        "[Toutes les operations sur fichiers]  Annulation propre avec Echap",
+        "      F1 transfert, F2 suppression, F3 tri, F4 renommage, F5 conversion.",
+        "      Le fichier en cours se termine toujours avant l'arret.",
+        "      Resume : nombre de fichiers traites avant annulation.",
+        "",
+        "[Menu / etiquettes]",
+        "      F2 : 'Detection de doublons de medias' (photos et videos).",
+        "      F3 : 'Tri de medias via metadonnees'.",
+    ]),
     ("v1.2.0", "2026-05-07  —  Conversion de médias, refonte menu, correctifs", [
         "[F5]  Conversion d'images et de vidéos  (nouveau module)",
         "      Images -> JPG, PNG, WebP via Pillow (HEIC/HEIF avec pillow-heif).",

@@ -20,12 +20,13 @@ from pathlib import Path
 
 import folder_browser
 import header as _header
+import progress_anim
 
 IMAGE_EXT = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.heic', '.heif'}
 VIDEO_EXT = {'.mp4', '.mov', '.avi', '.mkv', '.3gp', '.m4v', '.wmv'}
 MEDIA_EXT = IMAGE_EXT | VIDEO_EXT
 
-TITLE         = "Tri de photos par année"
+TITLE = "Tri de photos par année"
 ERROR_DIR     = "Erreur_tri"
 
 
@@ -86,61 +87,66 @@ def run(stdscr, colors):
     error_dir        = Path(src) / ERROR_DIR
 
     total = len(files)
-    for i, src_file in enumerate(files):
-        _progress(stdscr, colors, i, total, src_file.name,
-                  f"{action} en cours…")
+    with progress_anim.ProgressAnim(stdscr, colors, TITLE, f"{action} en cours…", total) as anim:
+        for i, src_file in enumerate(files):
+            anim.update(i, src_file.name)
 
-        year = _get_year(src_file)
+            year = _get_year(src_file)
 
-        if year is None:
+            if year is None:
+                try:
+                    error_dir.mkdir(exist_ok=True)
+                    dst = error_dir / src_file.name
+                    counter = 1
+                    while dst.exists():
+                        dst = error_dir / f"{src_file.stem}_{counter}{src_file.suffix}"
+                        counter += 1
+                    shutil.move(str(src_file), dst)
+                    no_date += 1
+                except Exception:
+                    errors += 1
+                continue
+
+            is_video = src_file.suffix.lower() in VIDEO_EXT
+            base_dest = Path(dest_videos) if is_video else Path(dest_photos)
+            dst_dir = base_dest / str(year)
             try:
-                error_dir.mkdir(exist_ok=True)
-                dst = error_dir / src_file.name
-                counter = 1
-                while dst.exists():
-                    dst = error_dir / f"{src_file.stem}_{counter}{src_file.suffix}"
-                    counter += 1
-                shutil.move(str(src_file), dst)
-                no_date += 1
+                dst_dir.mkdir(parents=True, exist_ok=True)
+            except OSError:
+                errors += 1
+                continue
+
+            dst = dst_dir / src_file.name
+            counter = 1
+            while dst.exists():
+                dst = dst_dir / f"{src_file.stem}_{counter}{src_file.suffix}"
+                counter += 1
+
+            try:
+                if move:
+                    shutil.move(str(src_file), dst)
+                else:
+                    shutil.copy2(src_file, dst)
+                if is_video:
+                    copied_videos += 1
+                else:
+                    copied_photos += 1
+                counts = year_counts.setdefault(str(year), {'photos': 0, 'videos': 0})
+                counts['videos' if is_video else 'photos'] += 1
             except Exception:
                 errors += 1
-            continue
-
-        is_video = src_file.suffix.lower() in VIDEO_EXT
-        base_dest = Path(dest_videos) if is_video else Path(dest_photos)
-        dst_dir = base_dest / str(year)
-        try:
-            dst_dir.mkdir(parents=True, exist_ok=True)
-        except OSError:
-            errors += 1
-            continue
-
-        dst = dst_dir / src_file.name
-        counter = 1
-        while dst.exists():
-            dst = dst_dir / f"{src_file.stem}_{counter}{src_file.suffix}"
-            counter += 1
-
-        try:
-            if move:
-                shutil.move(str(src_file), dst)
-            else:
-                shutil.copy2(src_file, dst)
-            if is_video:
-                copied_videos += 1
-            else:
-                copied_photos += 1
-            counts = year_counts.setdefault(str(year), {'photos': 0, 'videos': 0})
-            counts['videos' if is_video else 'photos'] += 1
-        except Exception:
-            errors += 1
+            if anim.cancelled:
+                break
 
     # 7. Résumé ───────────────────────────────────────────────────────────────
     verb = "déplacé(s)" if move else "copié(s)"
+    done = copied_photos + copied_videos + no_date + errors
     lines = [
         f"  ✔  {copied_photos} photo(s) {verb}",
         f"  ✔  {copied_videos} vidéo(s) {verb}",
     ]
+    if anim.cancelled:
+        lines.append(f"  ⚠  Annulé — {done}/{total} traité(s)")
     if no_date:
         lines.append(f"  ?  {no_date} fichier(s) sans date → {ERROR_DIR}/")
     if errors:
@@ -245,22 +251,6 @@ def _ask_copy_move(stdscr, colors):
             return True
         if key == 27:
             return None
-
-
-def _progress(stdscr, colors, i, total, filename, label):
-    h, w  = stdscr.getmaxyx()
-    bar_w = min(52, w - 12)
-    done  = int(bar_w * (i + 1) / total) if total else bar_w
-    bar   = f"[{'█' * done}{'░' * (bar_w - done)}]  {(i+1)*100//total if total else 100}%"
-    fname = filename if len(filename) <= w - 4 else "…" + filename[-(w - 5):]
-    stdscr.erase()
-    hh  = _header.draw_sub_header(stdscr, colors, TITLE)
-    _header.draw_footer(stdscr, colors)
-    mid = hh + (h - 1 - hh) // 2
-    _s(stdscr, mid - 1, 2, label,       colors['name'])
-    _s(stdscr, mid,     2, bar[:w - 3], colors['key'])
-    _s(stdscr, mid + 1, 2, fname,       colors['normal'])
-    stdscr.refresh()
 
 
 def _msg(stdscr, colors, lines):

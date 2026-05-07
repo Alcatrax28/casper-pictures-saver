@@ -7,7 +7,7 @@ a = Analysis(
     binaries=[],
     datas=[('icon.png', '.')],
     hiddenimports=[
-        'f1_android_backup', 'f2_duplicates', 'f3_photo_sort', 'f4_rename', 'f5_convert', 'f6_changelog',
+        'f1_android_backup', 'f2_duplicates', 'f3_photo_sort', 'f4_rename', 'f5_convert', 'f6_changelog', 'progress_anim',
         'PIL', 'PIL.Image', 'PIL.ExifTags',
     ],
     hookspath=[],
