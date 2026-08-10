@@ -19,7 +19,7 @@ Application en ligne de commande (TUI curses) pour la gestion de photos et vidé
 - Monte le système de fichiers Android via SFTP (D-Bus / qdbus6)
 - Trouve automatiquement le dossier `DCIM/Camera`
 - Choix du type de média : Photos uniquement, Vidéos uniquement, ou les deux
-- Comparaison par **contenu** (hash MD5 partiel + taille) pour éviter les doublons
+- Comparaison par **contenu** (hash MD5 complet + taille) pour éviter les doublons
 - Cache d'indexation persistant : pas de re-hachage si le dossier n'a pas changé
 - Animation de progression (chat ASCII) dans un thread dédié — reste fluide même sur des fichiers volumineux
 - Annulation propre avec **Échap** : confirmation visuelle immédiate (barre jaune), le fichier en cours se termine, puis l'opération s'arrête
@@ -27,7 +27,7 @@ Application en ligne de commande (TUI curses) pour la gestion de photos et vidé
 ### F2 — Détection de doublons de médias
 
 - **Passe 1** : hash MD5 exact (images + vidéos)
-- **Passe 2** : empreinte perceptuelle pHash (images uniquement, distance de Hamming ≤ 6)
+- **Passe 2** : empreinte perceptuelle pHash (images uniquement, distance de Hamming ≤ 4)
 - Règle de conservation automatique : fichier le plus grand, nom le plus court, plus ancien
 - Revue manuelle avec cases à cocher avant toute suppression
 - Annulation propre avec **Échap** pendant la suppression

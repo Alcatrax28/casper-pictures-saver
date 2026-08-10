@@ -3,8 +3,11 @@ F2 — Détection et suppression de doublons d'images et vidéos.
 
 Méthodes de détection (deux passes) :
   1. MD5 exact       — doublons octet-pour-octet (images + vidéos)
+                       Pré-cochés automatiquement pour suppression (correspondance certaine).
   2. pHash visuel    — images quasi-identiques (imagehash + Pillow requis)
-                       Distance de Hamming ≤ 6 sur un hash 64 bits.
+                       Distance de Hamming ≤ 4 sur un hash 64 bits.
+                       Jamais pré-cochés (probable, pas certain) — distance affichée
+                       dans l'écran de revue pour validation manuelle.
 
 Règle de conservation (par ordre de priorité) :
   → Garder le plus grand  (supprimer le plus petit)
@@ -28,7 +31,11 @@ MEDIA_EXT    = {
     '.mp4', '.mov', '.avi', '.mkv', '.3gp', '.m4v', '.wmv',
 }
 IMAGE_EXT    = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.heic', '.heif'}
-PHASH_THRESH = 6        # distance de Hamming maximale pour images quasi-identiques
+PHASH_THRESH = 4        # distance de Hamming maximale (sur 64 bits) pour juger deux
+                         # images "quasi-identiques" — resserré pour limiter les faux
+                         # positifs entre photos simplement similaires (même scène,
+                         # rafale, captures d'écran…). Distance et Ko affichés dans
+                         # la revue pour permettre un jugement manuel au cas par cas.
 CHUNK        = 65536    # 64 Ko par lecture pour le MD5
 
 
@@ -99,8 +106,11 @@ def _find_duplicates(files, stdscr, colors):
             if d:
                 md5_map.setdefault(d, []).append(f)
 
-    exact_groups = [g for g in md5_map.values() if len(g) > 1]
-    matched      = {f for g in exact_groups for f in g}
+    exact_groups = [
+        {'kind': 'exact', 'files': g, 'distances': {}}
+        for g in md5_map.values() if len(g) > 1
+    ]
+    matched = {f for g in exact_groups for f in g['files']}
 
     # Passe 2 : pHash perceptuel (images non encore détectées)
     images = [f for f in files
@@ -144,14 +154,19 @@ def _phash_groups(images, stdscr, colors):
     for i, (f1, h1) in enumerate(hashes):
         if used[i]:
             continue
-        group   = [f1]
-        used[i] = True
+        group     = [f1]
+        distances = {f1: 0}
+        used[i]   = True
         for j in range(i + 1, len(hashes)):
-            if not used[j] and (h1 - hashes[j][1]) <= PHASH_THRESH:
+            if used[j]:
+                continue
+            dist = h1 - hashes[j][1]
+            if dist <= PHASH_THRESH:
                 group.append(hashes[j][0])
+                distances[hashes[j][0]] = dist
                 used[j] = True
         if len(group) > 1:
-            groups.append(group)
+            groups.append({'kind': 'perceptual', 'files': group, 'distances': distances})
 
     return groups
 
@@ -182,17 +197,19 @@ def _review(stdscr, colors, groups):
     Espace = cocher/décocher le fichier sous le curseur.
     Retourne la liste des fichiers cochés à supprimer, ou None si annulé.
     """
-    decisions = [_apply_rule(g) for g in groups]
+    decisions = [(_apply_rule(g['files']), g) for g in groups]
 
     # marks : path → bool  (True = coché pour suppression)
-    # Initialisation par la règle automatique ; dédoublonnage si pHash
+    # Doublons exacts (MD5) : pré-cochés automatiquement, la correspondance est certaine.
+    # Doublons perceptuels (pHash) : jamais pré-cochés — ce ne sont que des probables
+    # similarités, la décision de suppression doit rester manuelle.
     marks = {}
-    for keeper, dels in decisions:
+    for (keeper, dels), group in decisions:
         if keeper not in marks:
             marks[keeper] = False
         for d in dels:
             if d not in marks:
-                marks[d] = True
+                marks[d] = (group['kind'] == 'exact')
 
     rows      = _build_rows(decisions)
     file_rows = [i for i, r in enumerate(rows) if r[0] == 'file']
@@ -274,11 +291,12 @@ def _review(stdscr, colors, groups):
 
 def _build_rows(decisions):
     rows = []
-    for idx, (keeper, dels) in enumerate(decisions):
-        rows.append(('header', idx + 1, 1 + len(dels)))
-        rows.append(('file', keeper))
+    for idx, ((keeper, dels), group) in enumerate(decisions):
+        label = "identiques (MD5)" if group['kind'] == 'exact' else "similaires (pHash)"
+        rows.append(('header', idx + 1, 1 + len(dels), label))
+        rows.append(('file', keeper, group))
         for d in dels:
-            rows.append(('file', d))
+            rows.append(('file', d, group))
         rows.append(('blank',))
     return rows
 
@@ -289,12 +307,12 @@ def _draw_row(stdscr, y, row, marks, is_cursor, colors, w):
         return
 
     if kind == 'header':
-        _, n, count = row
-        line = f"  ─── Groupe {n}  ({count} fichier(s)) " + "─" * max(0, w - 28)
+        _, n, count, label = row
+        line = f"  ─── Groupe {n} — {label}  ({count} fichier(s)) " + "─" * max(0, w - 40)
         _s(stdscr, y, 0, line[:w], colors['sep'])
         return
 
-    path     = row[1]
+    path, group = row[1], row[2]
     will_del = marks[path]
     checkbox = " [x] " if will_del else " [ ] "
 
@@ -313,7 +331,12 @@ def _draw_row(stdscr, y, row, marks, is_cursor, colors, w):
 
     size_str = _fmt_size(_fsize(path))
     date_str = _fmt_date(path)
-    suffix   = f"  {size_str:>9}  {date_str}"
+    if group['kind'] == 'perceptual':
+        dist = group['distances'].get(path, 0)
+        tag  = "  réf." if dist == 0 else f"  Δ{dist}"
+    else:
+        tag = ""
+    suffix   = f"  {size_str:>9}  {date_str}{tag}"
     name_w   = max(1, w - len(checkbox) - len(suffix) - 2)
     name     = ("  " + path.name)[:name_w].ljust(name_w)
 

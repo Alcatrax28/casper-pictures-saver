@@ -145,19 +145,27 @@ def _find_dcim(storage_roots):
     return storage_roots[0]
 
 
-_HASH_CHUNK  = 64 * 1024       # 64 Ko — suffisant pour identifier un fichier media
+_HASH_CHUNK  = 64 * 1024       # taille de bloc de lecture pour le hachage MD5
 _CACHE_FILE  = '.f1_index_cache.json'
 
 
 def _file_signature(path):
-    """Retourne (taille, md5_des_64_premiers_Ko) ou None en cas d'erreur."""
+    """
+    Retourne (taille, md5_du_contenu_complet) ou None en cas d'erreur.
+
+    Le hash porte sur le fichier entier : les conteneurs vidéo (MP4/MOV…)
+    placent souvent leurs métadonnées de structure en tête de fichier, ce qui
+    rend deux fichiers différents (mêmes réglages de capture) quasi identiques
+    sur leurs premiers Ko. Un hash partiel provoquait donc de faux doublons.
+    """
     try:
         if not path.is_file():
             return None
         size = path.stat().st_size
         h = hashlib.md5(usedforsecurity=False)
         with open(path, 'rb') as f:
-            h.update(f.read(_HASH_CHUNK))
+            while chunk := f.read(_HASH_CHUNK):
+                h.update(chunk)
         return (size, h.hexdigest())
     except Exception:
         return None

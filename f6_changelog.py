@@ -5,6 +5,24 @@ import header as _header
 TITLE = "Changelog"
 
 ENTRIES = [
+    ("v1.4.0", "2026-08-10  —  Fiabilité de la détection de doublons", [
+        "[F1]  Sauvegarde Android via KDE Connect",
+        "      Correctif : la comparaison de fichiers hachait seulement les 64",
+        "      premiers Ko. Pour les vidéos (MP4/MOV...), les métadonnées de",
+        "      structure en tête de fichier pouvaient être identiques entre deux",
+        "      clips différents, provoquant des fichiers ignorés à tort.",
+        "      Le hash porte désormais sur le fichier entier.",
+        "",
+        "[F2]  Détection de doublons de médias",
+        "      Distance de Hamming (pHash) resserrée de 6 à 4 pour réduire les",
+        "      faux positifs entre photos simplement similaires (même scène,",
+        "      rafale, captures d'écran...).",
+        "      Les groupes affichent maintenant leur type : identiques (MD5)",
+        "      ou similaires (pHash), avec la distance de chaque fichier.",
+        "      Seuls les doublons MD5 exacts sont pré-cochés pour suppression ;",
+        "      les correspondances pHash nécessitent désormais une validation",
+        "      manuelle avant suppression.",
+    ]),
     ("v1.3.1", "2026-05-07  —  Indicateur visuel d'annulation", [
         "[Toutes les barres de progression]  Confirmation visuelle de l'annulation",
         "      Des que la touche Echap est pressee, la barre d'aide passe en",
