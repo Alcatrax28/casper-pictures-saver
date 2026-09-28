@@ -5,6 +5,19 @@ import header as _header
 TITLE = "Changelog"
 
 ENTRIES = [
+    ("v1.5.0", "2026-09-28  —  Cache d'indexation incrémental & vérification de mise à jour", [
+        "[F1]  Sauvegarde Android via KDE Connect",
+        "      Le cache d'indexation du dossier de comparaison est désormais",
+        "      incrémental : chaque fichier est mis en cache individuellement",
+        "      (taille + date de modification). Ajouter ou supprimer un fichier",
+        "      n'invalide plus tout le cache — seuls les fichiers nouveaux ou",
+        "      modifiés sont re-hachés au lancement suivant.",
+        "",
+        "[Menu principal]  Vérification de mise à jour",
+        "      Vérifie en tâche de fond la dernière release disponible sur",
+        "      GitHub. Bannière discrète si une nouvelle version existe.",
+        "      Résultat mis en cache 24h, aucun impact si hors ligne.",
+    ]),
     ("v1.4.0", "2026-08-10  —  Fiabilité de la détection de doublons", [
         "[F1]  Sauvegarde Android via KDE Connect",
         "      Correctif : la comparaison de fichiers hachait seulement les 64",

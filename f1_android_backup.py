@@ -171,34 +171,25 @@ def _file_signature(path):
         return None
 
 
-def _folder_fingerprint(files_with_sizes):
+def _load_cache(compare_dir):
     """
-    Hash MD5 de la liste triée (chemin, taille) — aucune lecture de contenu.
-    Invalide si un fichier est ajouté, supprimé ou modifié (taille changée).
+    Retourne le cache par-fichier (relpath -> {size, mtime, md5}), ou {} si
+    absent/corrompu.
     """
-    entries = sorted(f"{rel}:{size}" for rel, size, _ in files_with_sizes)
-    h = hashlib.md5('\n'.join(entries).encode(), usedforsecurity=False)
-    return h.hexdigest()
-
-
-def _load_cache(compare_dir, fingerprint):
-    """Retourne un set de signatures si le cache existe et correspond au fingerprint."""
     cache_path = compare_dir / _CACHE_FILE
     if not cache_path.exists():
-        return None
+        return {}
     try:
         data = json.loads(cache_path.read_text(encoding='utf-8'))
-        if data.get('fingerprint') != fingerprint:
-            return None
-        return {tuple(s) for s in data['signatures']}
+        return data.get('entries', {})
     except Exception:
-        return None
+        return {}
 
 
-def _save_cache(compare_dir, fingerprint, sigs):
-    """Sauvegarde les signatures dans le cache."""
+def _save_cache(compare_dir, entries):
+    """Sauvegarde le cache par-fichier."""
     try:
-        data = {'fingerprint': fingerprint, 'signatures': [list(s) for s in sigs]}
+        data = {'version': 2, 'entries': entries}
         (compare_dir / _CACHE_FILE).write_text(
             json.dumps(data, ensure_ascii=False),
             encoding='utf-8',
@@ -209,9 +200,13 @@ def _save_cache(compare_dir, fingerprint, sigs):
 
 def _index_existing(compare_dir, stdscr, colors, media_ext=None):
     """
-    Construit un ensemble de signatures (taille, hash_partiel) pour les médias
+    Construit un ensemble de signatures (taille, hash_complet) pour les médias
     du dossier de comparaison, récursivement.
-    Utilise un cache si le dossier n'a pas changé depuis le dernier indexage.
+
+    Cache incrémental par fichier (taille + date de modification) : un fichier
+    déjà indexé et toujours présent à l'identique n'est jamais re-haché, même
+    si d'autres fichiers ont été ajoutés/supprimés entre-temps. Seuls les
+    fichiers nouveaux ou modifiés sont (re)hachés.
     """
     if media_ext is None:
         media_ext = MEDIA_EXT
@@ -219,7 +214,7 @@ def _index_existing(compare_dir, stdscr, colors, media_ext=None):
     if not compare_dir:
         return sigs
 
-    # Collecte fichiers + tailles (pas de lecture de contenu)
+    # Collecte fichiers + taille/mtime (pas de lecture de contenu)
     all_files = []
     for root, _, files in os.walk(compare_dir):
         for f in files:
@@ -228,30 +223,39 @@ def _index_existing(compare_dir, stdscr, colors, media_ext=None):
                 continue
             if p.suffix.lower() in media_ext:
                 try:
-                    all_files.append((str(p.relative_to(compare_dir)), p.stat().st_size, p))
+                    st = p.stat()
+                    all_files.append((str(p.relative_to(compare_dir)), st.st_size, st.st_mtime, p))
                 except OSError:
                     pass
 
     if not all_files:
         return sigs
 
-    # Vérifie si le cache est encore valide
-    fingerprint = _folder_fingerprint(all_files)
-    cached = _load_cache(compare_dir, fingerprint)
-    if cached is not None:
-        return cached
+    old_entries = _load_cache(compare_dir)
+    new_entries = {}
+    to_hash     = []
 
-    # Cache absent ou périmé : hachage avec barre de progression
-    total = len(all_files)
+    for rel, size, mtime, p in all_files:
+        cached = old_entries.get(rel)
+        if cached and cached.get('size') == size and cached.get('mtime') == mtime:
+            new_entries[rel] = cached
+            sigs.add((cached['size'], cached['md5']))
+        else:
+            to_hash.append((rel, size, mtime, p))
 
-    with progress_anim.ProgressAnim(stdscr, colors, TITLE, "Indexation du dossier de comparaison…", total) as anim:
-        for i, (_, __, p) in enumerate(all_files):
-            anim.update(i, p.name)
-            sig = _file_signature(p)
-            if sig is not None:
-                sigs.add(sig)
+    # Hachage des seuls fichiers nouveaux ou modifiés
+    if to_hash:
+        with progress_anim.ProgressAnim(stdscr, colors, TITLE, "Indexation du dossier de comparaison…", len(to_hash)) as anim:
+            for i, (rel, size, mtime, p) in enumerate(to_hash):
+                anim.update(i, p.name)
+                sig = _file_signature(p)
+                if sig is not None:
+                    sigs.add(sig)
+                    new_entries[rel] = {'size': sig[0], 'mtime': mtime, 'md5': sig[1]}
 
-    _save_cache(compare_dir, fingerprint, sigs)
+    # Le cache est réécrit avec uniquement les fichiers actuellement présents
+    # (les entrées des fichiers supprimés sont naturellement abandonnées).
+    _save_cache(compare_dir, new_entries)
     return sigs
 
 

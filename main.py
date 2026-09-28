@@ -1,6 +1,7 @@
 import curses
 from header import LOGO, NAME
 from version import APP_NAME, __version__
+import updater
 
 MENU_ITEMS = [
     ("F1", "Sauvegarde Android via KDE Connect"),   # 0  col gauche  ligne 0
@@ -134,7 +135,7 @@ def draw_item_box(stdscr, row, col, fkey, label, selected, is_quit, colors, w, i
             pass
 
 
-def draw_menu(stdscr, selected_idx, colors):
+def draw_menu(stdscr, selected_idx, colors, update_latest=None):
     stdscr.clear()
     h, w = stdscr.getmaxyx()
 
@@ -173,6 +174,15 @@ def draw_menu(stdscr, selected_idx, colors):
                   selected_idx == 5, False, colors, w, is_dim=True)
     draw_item_box(stdscr, bot_row, half_w + 4, fkey8, label8,
                   selected_idx == 6, True,  colors, w)
+
+    # ── Bannière de mise à jour (si une release plus récente est disponible) ──
+    update_row = bot_row + 3
+    if update_latest and update_row < h - 2:
+        text = f"  Mise à jour disponible : {update_latest}  ({updater.RELEASES_URL})  "
+        try:
+            stdscr.addstr(update_row, 0, text[:w].ljust(w - 1), colors["warn"])
+        except curses.error:
+            pass
 
     # ── Barre d'aide ─────────────────────────────────────────────────────────
     help_text = "  ↑ ↓  Naviguer    ← →  Changer colonne    F8  Quitter  "
@@ -218,8 +228,12 @@ def main(stdscr):
     colors = setup_colors()
     selected_idx = 0
 
+    # Vérification de mise à jour en tâche de fond (jamais bloquant, cache 24h)
+    update_state = {"latest": None}
+    updater.check_async(lambda latest: update_state.update(latest=latest))
+
     while True:
-        draw_menu(stdscr, selected_idx, colors)
+        draw_menu(stdscr, selected_idx, colors, update_state["latest"])
         key = stdscr.getch()
 
         if key == curses.KEY_UP:
