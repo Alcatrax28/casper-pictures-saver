@@ -13,7 +13,7 @@ Application en ligne de commande (TUI curses) pour la gestion de photos et vidé
 | F5 | Conversion de médias | Conversion d'images (JPG/PNG/WebP) et de vidéos (MP4/WebM) |
 | F6 | Changelog | Historique des versions |
 
-Une vérification de mise à jour (dernière [release GitHub](https://github.com/Alcatrax28/casper-pictures-saver/releases)) s'exécute en tâche de fond au lancement : si une version plus récente est disponible, une bannière s'affiche dans le menu principal. Résultat mis en cache 24h, échec silencieux si hors ligne — n'affecte jamais le démarrage.
+Une vérification de mise à jour (dernière [release GitHub](https://github.com/Alcatrax28/casper-pictures-saver/releases)) s'exécute en tâche de fond au lancement : si une version plus récente est disponible, une bannière s'affiche dans le menu principal et **F9** l'installe : téléchargement du binaire avec vérification SHA-256 puis remplacement, ou `git pull` si le programme est lancé depuis les sources. Le programme redémarre ensuite sur la nouvelle version. Résultat de la vérification mis en cache 24h, échec silencieux si hors ligne — n'affecte jamais le démarrage.
 
 ### F1 — Sauvegarde Android via KDE Connect
 

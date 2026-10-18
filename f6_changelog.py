@@ -5,6 +5,20 @@ import header as _header
 TITLE = "Changelog"
 
 ENTRIES = [
+    ("v1.6.0", "2026-10-18  —  Mise à jour depuis l'application", [
+        "[Menu principal]  Installation des mises à jour (F9)",
+        "      Quand une nouvelle version est disponible, F9 l'installe :",
+        "      - binaire : téléchargement depuis GitHub, vérification de",
+        "        l'empreinte SHA-256, remplacement de l'exécutable ;",
+        "      - sources (dépôt git) : git pull, refusé en cas de",
+        "        modifications locales non commitées.",
+        "      Le programme redémarre ensuite sur la nouvelle version.",
+        "      En cas d'échec, la version en place reste intacte.",
+        "",
+        "      Correctif : la bannière de mise à jour n'apparaissait qu'après",
+        "      un appui sur une touche, et jamais sur un terminal de moins",
+        "      d'environ 47 lignes (elle s'affiche alors dans la barre d'aide).",
+    ]),
     ("v1.5.1", "2026-10-18  —  Reprise automatique après coupure KDE Connect", [
         "[F1]  Sauvegarde Android via KDE Connect",
         "      Correctif : les transferts finissaient en erreur sur tous les",

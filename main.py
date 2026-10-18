@@ -136,7 +136,7 @@ def draw_item_box(stdscr, row, col, fkey, label, selected, is_quit, colors, w, i
 
 
 def draw_menu(stdscr, selected_idx, colors, update_latest=None):
-    stdscr.clear()
+    stdscr.erase()   # erase et non clear : pas de scintillement au rafraîchissement
     h, w = stdscr.getmaxyx()
 
     start_row = draw_header(stdscr, colors) + 1
@@ -176,20 +176,26 @@ def draw_menu(stdscr, selected_idx, colors, update_latest=None):
                   selected_idx == 6, True,  colors, w)
 
     # ── Bannière de mise à jour (si une release plus récente est disponible) ──
+    # Sous les boutons si la hauteur le permet, sinon à la place de la barre
+    # d'aide (sinon elle resterait invisible sur un terminal de < ~47 lignes).
     update_row = bot_row + 3
-    if update_latest and update_row < h - 2:
-        text = f"  Mise à jour disponible : {update_latest}  ({updater.RELEASES_URL})  "
+    banner_in_help = False
+    if update_latest:
+        text = f"  Mise à jour disponible : {update_latest}  —  [F9]  Installer  "
+        banner_in_help = update_row >= h - 2
         try:
-            stdscr.addstr(update_row, 0, text[:w].ljust(w - 1), colors["warn"])
+            stdscr.addstr(h - 2 if banner_in_help else update_row, 0,
+                          text[:w].ljust(w - 1), colors["warn"])
         except curses.error:
             pass
 
     # ── Barre d'aide ─────────────────────────────────────────────────────────
     help_text = "  ↑ ↓  Naviguer    ← →  Changer colonne    F8  Quitter  "
-    try:
-        stdscr.addstr(h - 2, 0, help_text[:w].ljust(w - 1), colors["help"])
-    except curses.error:
-        pass
+    if not banner_in_help:
+        try:
+            stdscr.addstr(h - 2, 0, help_text[:w].ljust(w - 1), colors["help"])
+        except curses.error:
+            pass
 
     # ── Footer ───────────────────────────────────────────────────────────────
     footer = f"  {APP_NAME}  —  v{__version__}  "
@@ -229,12 +235,19 @@ def main(stdscr):
     selected_idx = 0
 
     # Vérification de mise à jour en tâche de fond (jamais bloquant, cache 24h)
-    update_state = {"latest": None}
-    updater.check_async(lambda latest: update_state.update(latest=latest))
+    update_state = {"latest": None, "done": False}
+    updater.check_async(lambda latest: update_state.update(latest=latest, done=True))
 
     while True:
+        # Tant que la vérification tourne, getch() rend la main régulièrement
+        # pour que la bannière apparaisse sans attendre un appui sur une
+        # touche. Toujours rebloquant avant de lancer un module (F1…F6).
+        stdscr.timeout(-1 if update_state["done"] else 300)
         draw_menu(stdscr, selected_idx, colors, update_state["latest"])
         key = stdscr.getch()
+        stdscr.timeout(-1)
+        if key == -1:
+            continue
 
         if key == curses.KEY_UP:
             selected_idx = (selected_idx - 1) % len(MENU_ITEMS)
@@ -272,6 +285,10 @@ def main(stdscr):
             _launch(stdscr, colors, selected_idx)
         elif key == curses.KEY_F8:
             break
+        elif key == curses.KEY_F9 and update_state["latest"]:
+            import update_screen
+            if update_screen.run(stdscr, colors, update_state["latest"]):
+                return True
 
         elif key in (curses.KEY_ENTER, 10, 13):
             if selected_idx == FKEY_TO_IDX[8]:
@@ -284,4 +301,6 @@ if __name__ == "__main__":
     if not sys.stdin.isatty():
         print("Erreur : ce programme doit être lancé dans un terminal interactif.")
         sys.exit(1)
-    curses.wrapper(main)
+    if curses.wrapper(main):
+        # Mise à jour installée : relance hors curses (terminal restauré).
+        updater.restart()

@@ -7,11 +7,21 @@ Vérification de mise à jour — dernière release GitHub.
   et réutilisé pendant 24h pour éviter une requête réseau à chaque lancement.
 - Échec silencieux (pas de réseau, timeout, rate-limit GitHub…) : l'appli
   continue normalement, simplement sans bannière de mise à jour.
+
+Installation (déclenchée par l'utilisateur, F9 dans le menu) :
+- binaire PyInstaller : téléchargement de l'asset de la release à côté de
+  l'exécutable, vérification taille + SHA-256 (empreinte publiée par GitHub),
+  puis remplacement atomique (os.replace) ;
+- lancement depuis les sources (dépôt git) : `git pull --ff-only`.
+Dans les deux cas, restart() relance ensuite le programme à jour.
 """
 
+import hashlib
 import json
 import os
 import re
+import subprocess
+import sys
 import threading
 import time
 import urllib.error
@@ -26,6 +36,10 @@ RELEASES_URL = f"https://github.com/{REPO}/releases/latest"
 
 _CACHE_TTL = 24 * 3600   # délai minimal entre deux requêtes réseau
 _TIMEOUT   = 3           # secondes — court, on est dans un thread de fond
+_DL_TIMEOUT = 30         # secondes sans données avant abandon du téléchargement
+_DL_CHUNK   = 256 * 1024
+ASSET_NAME  = 'casper-pictures-saver'   # nom du binaire attaché aux releases
+SOURCE_DIR  = Path(__file__).resolve().parent
 
 _CACHE_FILE = (
     Path(os.environ.get('XDG_CACHE_HOME', Path.home() / '.cache'))
@@ -105,8 +119,134 @@ def check_async(callback):
     rafraîchissement d'écran).
     """
     def _run():
+        latest = None
         try:
-            callback(check())
+            latest = check()
         except Exception:
             pass
+        callback(latest)
     threading.Thread(target=_run, daemon=True).start()
+
+
+# ─── Installation ─────────────────────────────────────────────────────────────
+
+class UpdateError(Exception):
+    """Échec d'installation, avec un message lisible pour l'utilisateur."""
+
+
+def install_mode():
+    """
+    'binary'  : exécutable PyInstaller remplaçable sur place ;
+    'git'     : lancé depuis un dépôt git (sources) ;
+    None      : mise à jour automatique impossible (dossier non inscriptible…).
+    """
+    if getattr(sys, 'frozen', False):
+        exe = Path(sys.executable)
+        return 'binary' if os.access(exe.parent, os.W_OK) else None
+    if (SOURCE_DIR / '.git').exists():
+        return 'git'
+    return None
+
+
+def _fetch_release():
+    """Infos de la dernière release : (tag, url, taille, sha256 ou None)."""
+    req = urllib.request.Request(
+        API_URL,
+        headers={
+            'Accept': 'application/vnd.github+json',
+            'User-Agent': f'casper-pictures-saver/{__version__}',
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode('utf-8'))
+    except Exception as e:
+        raise UpdateError(f"GitHub injoignable : {e}")
+    for asset in data.get('assets', []):
+        if asset.get('name') == ASSET_NAME:
+            digest = asset.get('digest') or ''
+            sha = digest[7:] if digest.startswith('sha256:') else None
+            return (data.get('tag_name'), asset['browser_download_url'],
+                    asset['size'], sha)
+    raise UpdateError(f"Aucun binaire « {ASSET_NAME} » dans la release "
+                      f"{data.get('tag_name')}.")
+
+
+def install_binary(progress=None):
+    """
+    Télécharge le binaire de la dernière release et remplace l'exécutable
+    courant. progress(reçus, total) est appelé pendant le téléchargement.
+    Retourne le tag installé. Lève UpdateError en cas d'échec — l'exécutable
+    en place n'est alors jamais modifié.
+    """
+    tag, url, size, sha = _fetch_release()
+    exe = Path(sys.executable).resolve()
+    tmp = exe.with_name(f".{exe.name}.update")
+    h   = hashlib.sha256()
+    got = 0
+    try:
+        req = urllib.request.Request(
+            url, headers={'User-Agent': f'casper-pictures-saver/{__version__}'})
+        with urllib.request.urlopen(req, timeout=_DL_TIMEOUT) as resp, \
+                open(tmp, 'wb') as out:
+            while chunk := resp.read(_DL_CHUNK):
+                out.write(chunk)
+                h.update(chunk)
+                got += len(chunk)
+                if progress:
+                    progress(got, size)
+        if got != size:
+            raise UpdateError(f"Téléchargement incomplet ({got}/{size} octets).")
+        if sha and h.hexdigest() != sha:
+            raise UpdateError("Empreinte SHA-256 invalide — fichier corrompu.")
+        os.chmod(tmp, 0o755)
+        os.replace(tmp, exe)
+        _save_cache({})   # force une nouvelle vérification au redémarrage
+    except UpdateError:
+        _unlink(tmp)
+        raise
+    except Exception as e:
+        _unlink(tmp)
+        raise UpdateError(f"Échec du téléchargement : {e}")
+    return tag
+
+
+def install_git():
+    """
+    Met à jour les sources via `git pull --ff-only`. Retourne la sortie git.
+    Refuse si des modifications locales non commitées existent.
+    """
+    def git(*args):
+        return subprocess.run(['git', '-C', str(SOURCE_DIR), *args],
+                              capture_output=True, text=True, timeout=120)
+    try:
+        if git('status', '--porcelain', '--untracked-files=no').stdout.strip():
+            raise UpdateError("Modifications locales non commitées — "
+                              "mise à jour annulée (commitez ou annulez-les).")
+        r = git('pull', '--ff-only')
+    except FileNotFoundError:
+        raise UpdateError("git est introuvable.")
+    except subprocess.TimeoutExpired:
+        raise UpdateError("git pull a expiré (réseau ?).")
+    if r.returncode != 0:
+        raise UpdateError((r.stderr or r.stdout).strip().splitlines()[-1]
+                          if (r.stderr or r.stdout).strip() else "git pull a échoué.")
+    _save_cache({})   # force une nouvelle vérification au redémarrage
+    return r.stdout.strip()
+
+
+def restart():
+    """Remplace le processus courant par la version fraîchement installée."""
+    if getattr(sys, 'frozen', False):
+        # Le binaire onefile doit ré-extraire son archive (la nouvelle) au
+        # lieu de réutiliser celle du processus courant.
+        os.environ['PYINSTALLER_RESET_ENVIRONMENT'] = '1'
+        os.execv(sys.executable, [sys.executable, *sys.argv[1:]])
+    os.execv(sys.executable, [sys.executable, *sys.argv])
+
+
+def _unlink(path):
+    try:
+        path.unlink()
+    except OSError:
+        pass
