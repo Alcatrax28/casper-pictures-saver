@@ -114,7 +114,8 @@ def run(stdscr, colors):
 
         # 7. Transfert ────────────────────────────────────────────────────────
         existing = _index_existing(compare, stdscr, colors, media_ext)
-        copied, skipped, errors, cancelled = _transfer(stdscr, colors, src, dest, existing, media_ext)
+        copied, skipped, errors, cancelled, last_error, conn_lost = _transfer(
+            stdscr, colors, src, dest, existing, media_ext, mount=dm)
 
         # 8. Résumé ───────────────────────────────────────────────────────────
         lines = [
@@ -123,8 +124,13 @@ def run(stdscr, colors):
         ]
         if cancelled:
             lines.append(f"  ⚠  Annulé — {copied + skipped + errors} fichier(s) traité(s) avant arrêt")
+        if conn_lost:
+            lines.append("  ⚠  Connexion au téléphone perdue — transfert interrompu")
+            lines.append("     (téléphone déverrouillé et KDE Connect actif ? relancez F1)")
         if errors:
             lines.append(f"  ✗  {errors} erreur(s)")
+        if last_error:
+            lines.append(f"     Dernière erreur : {last_error}")
         lines += ["", "  Appuyez sur une touche pour revenir au menu…"]
         _box(stdscr, colors, lines, title="Terminé")
         stdscr.getch()
@@ -146,6 +152,7 @@ def _find_dcim(storage_roots):
 
 
 _HASH_CHUNK  = 64 * 1024       # taille de bloc de lecture pour le hachage MD5
+_COPY_CHUNK  = 1024 * 1024     # 1 Mo — gros blocs pour limiter les allers-retours SFTP
 _CACHE_FILE  = '.f1_index_cache.json'
 
 
@@ -259,43 +266,107 @@ def _index_existing(compare_dir, stdscr, colors, media_ext=None):
     return sigs
 
 
-def _transfer(stdscr, colors, src, dest, existing, media_ext=None):
-    """Copie les médias de src vers dest en ignorant ceux dans existing."""
+def _copy_hashing(src_file, tmp_dst):
+    """
+    Copie src_file vers tmp_dst en calculant le MD5 au passage.
+    Retourne la signature (taille, md5). Le fichier source n'est lu qu'une
+    seule fois : via SFTP, une lecture pour le hash puis une autre pour la
+    copie doublait la durée du transfert.
+    """
+    h    = hashlib.md5(usedforsecurity=False)
+    size = 0
+    with open(src_file, 'rb') as fi, open(tmp_dst, 'wb') as fo:
+        while chunk := fi.read(_COPY_CHUNK):
+            h.update(chunk)
+            fo.write(chunk)
+            size += len(chunk)
+    try:
+        shutil.copystat(src_file, tmp_dst)
+    except OSError:
+        pass
+    return (size, h.hexdigest())
+
+
+def _free_dest(dest, src_file):
+    """Premier chemin libre dans dest pour src_file (suffixe _1, _2… si besoin)."""
+    dst = dest / src_file.name
+    counter = 1
+    while dst.exists():
+        dst = dest / f"{src_file.stem}_{counter}{src_file.suffix}"
+        counter += 1
+    return dst
+
+
+def _transfer(stdscr, colors, src, dest, existing, media_ext=None, mount=None):
+    """
+    Copie les médias de src vers dest en ignorant ceux dans existing.
+
+    Chaque fichier est téléchargé dans un fichier temporaire tout en étant
+    haché ; s'il s'avère déjà présent, le temporaire est supprimé.
+
+    Si la liaison SFTP tombe (mount fourni), le périphérique est remonté
+    automatiquement et le fichier en cours est retenté ; si le remontage
+    échoue, le transfert s'arrête au lieu d'accumuler les erreurs.
+
+    Retourne (copied, skipped, errors, cancelled, last_error, conn_lost).
+    """
     if media_ext is None:
         media_ext = MEDIA_EXT
-    files = [
-        p for p in Path(src).rglob('*')
-        if p.is_file() and p.suffix.lower() in media_ext
-    ]
-    total   = len(files)
-    copied  = 0
-    skipped = 0
-    errors  = 0
+    src  = Path(src)
+    dest = Path(dest)
+    # Fichiers cachés exclus (.trashed-…, .pending-… : corbeille / écritures
+    # en cours côté Android).
+    rel_files = sorted(
+        p.relative_to(src) for p in src.rglob('*')
+        if not p.name.startswith('.')
+        and p.suffix.lower() in media_ext
+        and p.is_file()
+    )
+    total      = len(rel_files)
+    copied     = 0
+    skipped    = 0
+    errors     = 0
+    last_error = None
+    conn_lost  = False
 
     with progress_anim.ProgressAnim(stdscr, colors, TITLE, "Transfert en cours…", total) as anim:
-        for i, src_file in enumerate(files):
-            anim.update(i, src_file.name)
+        for i, rel in enumerate(rel_files):
+            anim.update(i, rel.name)
 
-            sig = _file_signature(src_file)
-            if sig is not None and sig in existing:
-                skipped += 1
-            else:
-                dst = Path(dest) / src_file.name
-                counter = 1
-                while dst.exists():
-                    dst = Path(dest) / f"{src_file.stem}_{counter}{src_file.suffix}"
-                    counter += 1
+            for attempt in range(2):
+                src_file = src / rel
+                tmp = dest / f".{rel.name}.casper-part"
                 try:
-                    shutil.copy2(src_file, dst)
-                    if sig is not None:
+                    sig = _copy_hashing(src_file, tmp)
+                    if sig in existing:
+                        tmp.unlink()
+                        skipped += 1
+                    else:
+                        tmp.rename(_free_dest(dest, src_file))
                         existing.add(sig)
-                    copied += 1
-                except Exception:
+                        copied += 1
+                    break
+                except OSError as e:
+                    try:
+                        tmp.unlink()
+                    except OSError:
+                        pass
+                    if attempt == 0 and mount is not None and not mount.is_alive():
+                        old_mp = mount.mount_point
+                        anim.update(i, f"Connexion perdue — attente du téléphone… ({rel.name})")
+                        if mount.remount(should_abort=lambda: anim.cancelled):
+                            if mount.mount_point != old_mp and src.is_relative_to(old_mp):
+                                src = mount.mount_point / src.relative_to(old_mp)
+                            continue
+                        conn_lost = True
+                    last_error = f"{rel.name} : {e.strerror or e}"
                     errors += 1
-            if anim.cancelled:
+                    break
+
+            if anim.cancelled or conn_lost:
                 break
 
-    return copied, skipped, errors, anim.cancelled
+    return copied, skipped, errors, anim.cancelled, last_error, conn_lost
 
 
 # ─── UI helpers ───────────────────────────────────────────────────────────────

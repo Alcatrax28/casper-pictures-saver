@@ -5,6 +5,18 @@ import header as _header
 TITLE = "Changelog"
 
 ENTRIES = [
+    ("v1.5.1", "2026-10-18  —  Reprise automatique après coupure KDE Connect", [
+        "[F1]  Sauvegarde Android via KDE Connect",
+        "      Correctif : les transferts finissaient en erreur sur tous les",
+        "      fichiers restants quand la liaison KDE Connect tombait en cours",
+        "      de route (sshfs mort, « Transport endpoint is not connected »).",
+        "      Le téléphone est désormais attendu puis remonté automatiquement,",
+        "      et le transfert reprend là où il s'était arrêté.",
+        "      Chaque fichier n'est plus lu qu'une seule fois (copie et hash en",
+        "      un seul passage) : transfert environ deux fois plus rapide.",
+        "      Les fichiers cachés (.trashed-…, corbeille Android) sont ignorés.",
+        "      Le résumé affiche la cause de la dernière erreur.",
+    ]),
     ("v1.5.0", "2026-09-28  —  Cache d'indexation incrémental & vérification de mise à jour", [
         "[F1]  Sauvegarde Android via KDE Connect",
         "      Le cache d'indexation du dossier de comparaison est désormais",
